@@ -1,108 +1,120 @@
 import os
+import requests
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
-from datetime import datetime
-import random
-import pytz  # для работы с часовыми поясами
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
+# Токены из переменных окружения Render
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
+WEATHER_API_KEY = os.environ.get('WEATHER_API_KEY')  # Добавьте этот ключ в Render
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
-    user = update.message.from_user
+    """Команда /start"""
     await update.message.reply_text(
-        f"🎉 Привет {user.first_name}!\n"
-        "Я ваш телеграм бот!\n"
-        "Доступные команды:\n"
+        "🌤️ Привет! Я бот для прогноза погоды!\n\n"
+        "Просто напишите название города и я покажу погоду.\n"
+        "Например: Москва, London, Paris\n\n"
+        "Команды:\n"
         "/start - начать работу\n"
-        "/help - помощь\n" 
-        "/hello - приветствие\n"
-        "/time - текущее время (Москва)\n"
-        "/random - случайное число\n"
-        "/info - информация о вас"
+        "/help - помощь\n"
+        "/weather - узнать погоду"
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /help"""
+    """Команда /help"""
     await update.message.reply_text(
-        "📋 Помощь по командам:\n"
-        "/start - начать работу\n"
-        "/help - помощь\n"
-        "/hello - приветствие\n"
-        "/time - текущее время (Москва)\n"
-        "/random - случайное число\n"
-        "/info - информация о вас"
+        "📋 Как пользоваться ботом:\n\n"
+        "1. Напишите название города на русском или английском\n"
+        "2. Или используйте команду /weather Москва\n"
+        "3. Бот покажет текущую погоду и прогноз\n\n"
+        "Примеры:\n"
+        "• Москва\n"
+        "• London\n"
+        "• /weather Paris"
     )
 
-async def hello(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /hello"""
-    await update.message.reply_text(f"👋 Привет, {update.message.from_user.first_name}!")
-
-async def time(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает текущее время МОСКВЫ"""
-    # Устанавливаем московский часовой пояс
-    moscow_tz = pytz.timezone('Europe/Moscow')
-    moscow_time = datetime.now(moscow_tz)
-    
-    current_time = moscow_time.strftime("%H:%M:%S")
-    current_date = moscow_time.strftime("%d.%m.%Y")
-    current_day = moscow_time.strftime("%A")
-    
-    # Перевод дня недели на русский
-    days = {
-        'Monday': 'Понедельник',
-        'Tuesday': 'Вторник', 
-        'Wednesday': 'Среда',
-        'Thursday': 'Четверг',
-        'Friday': 'Пятница',
-        'Saturday': 'Суббота',
-        'Sunday': 'Воскресенье'
-    }
-    
-    await update.message.reply_text(
-        f"🕐 Московское время:\n"
-        f"📅 {current_date} ({days[current_day]})\n"
-        f"⏰ {current_time}"
-    )
-
-async def random_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Генерирует случайное число"""
-    number = random.randint(1, 100)
-    await update.message.reply_text(f"🎲 Случайное число: {number}")
-
-async def user_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает информацию о пользователе"""
-    user = update.message.from_user
-    await update.message.reply_text(
-        f"👤 Информация о вас:\n"
-        f"Имя: {user.first_name}\n"
-        f"Фамилия: {user.last_name or 'не указана'}\n"
-        f"Username: @{user.username or 'не указан'}\n"
-        f"ID: {user.id}"
-    )
-
-def main():
-    if not BOT_TOKEN:
-        print("❌ Ошибка: BOT_TOKEN не установлен!")
+async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /weather [город]"""
+    if not context.args:
+        await update.message.reply_text("⚠️ Укажите город: /weather Москва")
         return
     
-    print("🚀 Запуск бота на Render...")
+    city = ' '.join(context.args)
+    await get_weather(update, city)
+
+async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка сообщений с названием города"""
+    city = update.message.text
+    await get_weather(update, city)
+
+async def get_weather(update: Update, city: str):
+    """Получение погоды по API"""
+    if not WEATHER_API_KEY:
+        await update.message.reply_text("❌ Сервис погоды временно недоступен")
+        return
     
-    # Создаем приложение
+    try:
+        # Запрос к OpenWeatherMap API
+        url = f"http://api.openweathermap.org/data/2.5/weather"
+        params = {
+            'q': city,
+            'appid': WEATHER_API_KEY,
+            'units': 'metric',  # градусы Цельсия
+            'lang': 'ru'
+        }
+        
+        response = requests.get(url, params=params)
+        data = response.json()
+        
+        if response.status_code == 200:
+            # Парсим данные о погоде
+            temperature = data['main']['temp']
+            feels_like = data['main']['feels_like']
+            humidity = data['main']['humidity']
+            pressure = data['main']['pressure']
+            description = data['weather'][0]['description']
+            wind_speed = data['wind']['speed']
+            city_name = data['name']
+            country = data['sys']['country']
+            
+            # Формируем ответ
+            weather_text = (
+                f"🌍 {city_name}, {country}\n"
+                f"🌡️ Температура: {temperature}°C\n"
+                f"💭 Ощущается как: {feels_like}°C\n"
+                f"📝 {description.capitalize()}\n"
+                f"💧 Влажность: {humidity}%\n"
+                f"🌬️ Ветер: {wind_speed} м/с\n"
+                f"📊 Давление: {pressure} гПа"
+            )
+            
+            await update.message.reply_text(weather_text)
+            
+        else:
+            await update.message.reply_text(f"❌ Город '{city}' не найден. Попробуйте другой город.")
+            
+    except Exception as e:
+        await update.message.reply_text("❌ Ошибка при получении погоды. Попробуйте позже.")
+
+def main():
+    """Запуск бота"""
+    if not BOT_TOKEN:
+        print("❌ BOT_TOKEN не найден!")
+        return
+    
+    if not WEATHER_API_KEY:
+        print("⚠️ WEATHER_API_KEY не найден. Бот будет работать без погоды.")
+    
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Добавляем обработчики команд
+    # Обработчики команд
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("hello", hello))
-    application.add_handler(CommandHandler("time", time))
-    application.add_handler(CommandHandler("random", random_number))
-    application.add_handler(CommandHandler("info", user_info))
+    application.add_handler(CommandHandler("weather", weather_command))
     
-    print("✅ Бот запущен и готов к работе!")
-    print("🤖 Отправьте /start вашему боту в Telegram")
+    # Обработчик текстовых сообщений (названия городов)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_city_message))
     
-    # Запускаем бота
+    print("🌤️ Бот погоды запущен!")
     application.run_polling()
 
 if __name__ == '__main__':
