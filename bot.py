@@ -40,12 +40,12 @@ async def test_ozon(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if response.status_code == 200:
             data = response.json()
             count = len(data.get('result', {}).get('items', []))
-            results.append(f"✅ Товары (v2): {count} шт.")
+            results.append(f"✅ Товары (v3): {count} шт.")
         else:
             error_msg = response.text[:100] if response.text else "нет деталей"
-            results.append(f"❌ Товары (v2): {response.status_code} - {error_msg}")
+            results.append(f"❌ Товары (v3): {response.status_code} - {error_msg}")
     except Exception as e:
-        results.append(f"❌ Товары (v2): {str(e)}")
+        results.append(f"❌ Товары (v3): {str(e)}")
     
     # ТЕСТ 2: FBS заказы (v3) - ПРАВИЛЬНЫЙ PAYLOAD
     try:
