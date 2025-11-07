@@ -26,7 +26,7 @@ class OzonSellerAPI:
         """Получает реальные товары из Ozon магазина"""
         try:
             response = requests.post(
-                "https://api-seller.ozon.ru/v2/product/list",
+                "https://api-seller.ozon.ru/v3/product/list",
                 headers=self.headers,
                 json={
                     "filter": {"visibility": "ALL"},
