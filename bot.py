@@ -12,7 +12,7 @@ OZON_CLIENT_ID = os.environ.get('OZON_CLIENT_ID')
 products_cache = {}
 user_carts = {}
 user_orders = {}
-current_product_index = {}  # Текущий индекс товара для каждого пользователя
+current_product_index = {}
 
 class OzonSellerAPI:
     def __init__(self):
@@ -23,10 +23,10 @@ class OzonSellerAPI:
         }
     
     def get_products_list(self, limit=50):
-        """Получает реальные товары из Ozon магазина"""
+        """Получает список товаров из Ozon"""
         try:
             response = requests.post(
-                "https://api-seller.ozon.ru/v3/product/list",
+                "https://api-seller.ozon.ru/v2/product/list",
                 headers=self.headers,
                 json={
                     "filter": {"visibility": "ALL"},
@@ -42,42 +42,96 @@ class OzonSellerAPI:
         except Exception as e:
             print(f"❌ Ошибка запроса товаров: {e}")
             return None
+    
+    def get_product_prices(self, product_ids):
+        """Получает цены для списка товаров"""
+        try:
+            response = requests.post(
+                "https://api-seller.ozon.ru/v1/product/info/prices",
+                headers=self.headers,
+                json={
+                    "product_id": product_ids,
+                    "visibility": "ALL"
+                },
+                timeout=10
+            )
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"❌ Ошибка получения цен: {response.status_code}")
+                return None
+        except Exception as e:
+            print(f"❌ Ошибка запроса цен: {e}")
+            return None
 
 # Инициализация API
 ozon_api = OzonSellerAPI()
 
 async def load_real_products():
-    """Загружает реальные товары из Ozon API"""
+    """Загружает реальные товары с ценами из Ozon API"""
     global products_cache
     
     print("🔄 Загрузка товаров из Ozon...")
     
-    products_data = ozon_api.get_products_list(limit=30)
+    # Получаем список товаров
+    products_data = ozon_api.get_products_list(limit=50)
     
     if not products_data or 'result' not in products_data:
         print("❌ Не удалось загрузить товары из Ozon")
-        return get_demo_products()
+        products_cache = {}
+        return {}
     
     products = {}
     product_counter = 1
+    product_ids = []
     
+    # Собираем ID товаров для получения цен
+    for item in products_data['result']['items']:
+        try:
+            product_id = item['product_id']
+            product_ids.append(product_id)
+        except Exception as e:
+            print(f"❌ Ошибка сбора ID товаров: {e}")
+            continue
+    
+    # Получаем цены для всех товаров
+    prices_data = ozon_api.get_product_prices(product_ids)
+    prices_map = {}
+    
+    if prices_data and 'result' in prices_data:
+        for price_item in prices_data['result']['items']:
+            product_id = price_item['product_id']
+            price = price_item['price']
+            prices_map[str(product_id)] = price
+        print(f"✅ Получены цены для {len(prices_map)} товаров")
+    else:
+        print("❌ Не удалось получить цены товаров")
+    
+    # Обрабатываем товары
     for item in products_data['result']['items']:
         try:
             product_id = item['product_id']
             offer_id = item['offer_id']
             name = item.get('name', f'Товар {offer_id}')
             
-            # Используем offer_id как ключ для уникальности
+            # Получаем цену из prices_map
+            price = prices_map.get(str(product_id), 0)
+            
+            # Пропускаем товары без цены
+            if price == 0:
+                print(f"⚠️ Пропускаем товар без цены: {name}")
+                continue
+            
             product_key = product_counter
             
             products[product_key] = {
                 'ozon_id': product_id,
                 'offer_id': offer_id,
                 'name': name,
-                'price': 1999,  # Заглушка - в реальности нужно получать цену из API
-                'image': "📦",  # Базовая иконка
-                'description': f"Артикул: {offer_id}",
-                'quantity': 10  # Заглушка
+                'price': price,
+                'image': "📦",
+                'description': "Товар из нашего магазина",
+                'quantity': 1
             }
             
             product_counter += 1
@@ -86,23 +140,9 @@ async def load_real_products():
             print(f"❌ Ошибка обработки товара: {e}")
             continue
     
-    print(f"✅ Загружено {len(products)} товаров из Ozon")
+    print(f"✅ Загружено {len(products)} товаров с ценами из Ozon")
     products_cache = products
     return products
-
-def get_demo_products():
-    """Демо-товары на случай если API не работает"""
-    print("⚠️ Использую демо-товары")
-    demo_products = {
-        1: {"name": "Смартфон Xiaomi Redmi Note 12", "price": 19999, "image": "📱", "description": "Смартфон с отличной камерой", "quantity": 10},
-        2: {"name": "Наушники Sony WH-CH720N", "price": 12999, "image": "🎧", "description": "Беспроводные наушники с шумоподавлением", "quantity": 15},
-        3: {"name": "Футболка хлопковая", "price": 1499, "image": "👕", "description": "Мужская футболка из 100% хлопка", "quantity": 25},
-        4: {"name": "Кроссовки Nike Revolution 7", "price": 8999, "image": "👟", "description": "Спортивные кроссовки для бега", "quantity": 8},
-        5: {"name": "Часы Casio G-Shock", "price": 15999, "image": "⌚", "description": "Прочные спортивные часы", "quantity": 5},
-        6: {"name": "Рюкзак городской", "price": 3999, "image": "🎒", "description": "Вместительный рюкзак для города", "quantity": 12},
-    }
-    products_cache.update(demo_products)
-    return demo_products
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приветствие и главное меню"""
@@ -111,6 +151,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Загружаем товары при старте
     if not products_cache:
         await load_real_products()
+    
+    # Проверяем есть ли товары
+    if not products_cache:
+        keyboard = [
+            [InlineKeyboardButton("🔄 Попробовать снова", callback_data="refresh_products")],
+            [InlineKeyboardButton("📞 Поддержка", callback_data="support")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "❌ *Товары временно недоступны*\n\n"
+            "Не удалось загрузить товары из магазина.\n"
+            "Попробуйте обновить или обратитесь в поддержку.",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        return
     
     keyboard = [
         [InlineKeyboardButton("🛍️ Смотреть товары", callback_data="view_products")],
@@ -141,12 +198,18 @@ async def view_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not products_cache:
         await load_real_products()
     
+    # Проверяем есть ли товары после загрузки
+    if not products_cache:
+        await query.edit_message_text(
+            "❌ Товары временно недоступны\nПопробуйте обновить позже.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Обновить", callback_data="refresh_products")]])
+        )
+        return
+    
     user_id = query.from_user.id if query else update.message.from_user.id
     
     # Начинаем с первого товара
     current_product_index[user_id] = 0
-    
-    # Показываем первый товар
     await show_product(update, context, user_id)
 
 async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int = None):
@@ -164,8 +227,8 @@ async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, user_
     
     if not product_ids:
         await update.callback_query.edit_message_text(
-            "❌ Товары временно недоступны\nПопробуйте позже или напишите в поддержку.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📞 Поддержка", callback_data="support")]])
+            "❌ Товары временно недоступны",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Обновить", callback_data="refresh_products")]])
         )
         return
     
@@ -179,14 +242,11 @@ async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, user_
     if len(product_ids) > 1:
         nav_buttons = []
         
-        # Кнопка "Назад" если не первый товар
         if current_index > 0:
             nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data="product_prev"))
         
-        # Номер текущего товара
         nav_buttons.append(InlineKeyboardButton(f"{current_index + 1}/{len(product_ids)}", callback_data="none"))
         
-        # Кнопка "Вперед" если не последний товар
         if current_index < len(product_ids) - 1:
             nav_buttons.append(InlineKeyboardButton("Вперед ➡️", callback_data="product_next"))
         
@@ -205,8 +265,7 @@ async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, user_
     message_text = (
         f"{product['image']} *{product['name']}*\n\n"
         f"💵 *Цена:* {product['price']} ₽\n"
-        f"📝 *Описание:* {product.get('description', 'Описание товара')}\n"
-        f"📦 *В наличии:* {product.get('quantity', 1)} шт.\n\n"
+        f"📦 *В наличии*\n\n"
         f"✅ *Готов к заказу*\n"
         f"🚚 *Доставка:* Ozon FBS (1-3 дня)\n\n"
         f"🛒 Нажмите 'Добавить в корзину' чтобы заказать!"
@@ -242,11 +301,9 @@ async def add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     product_id = int(query.data.split("_")[1])
     user_id = query.from_user.id
     
-    # Инициализируем корзину пользователя
     if user_id not in user_carts:
         user_carts[user_id] = {}
     
-    # Добавляем товар в корзину
     if product_id in user_carts[user_id]:
         user_carts[user_id][product_id] += 1
     else:
@@ -374,7 +431,7 @@ async def show_my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     orders_text = "📦 *Ваши заказы:*\n\n"
     
-    for order in user_orders[user_id][-5:]:  # Показываем последние 5 заказов
+    for order in user_orders[user_id][-5:]:
         orders_text += f"🆔 *Заказ #{order['order_id']}*\n"
         orders_text += f"💵 Сумма: {order['total']} ₽\n"
         orders_text += f"📊 Статус: {order['status']}\n"
@@ -398,6 +455,15 @@ async def refresh_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     await load_real_products()
+    
+    if not products_cache:
+        keyboard = [[InlineKeyboardButton("📞 Поддержка", callback_data="support")]]
+        await query.edit_message_text(
+            "❌ Не удалось загрузить товары\n"
+            "Попробуйте позже или обратитесь в поддержку",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return
     
     keyboard = [[InlineKeyboardButton("🛍️ Смотреть товары", callback_data="view_products")]]
     
@@ -470,6 +536,9 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("refresh", refresh_products))
     application.add_handler(CallbackQueryHandler(handle_callback))
+    
+    # Предзагрузка товаров
+    print("🔄 Загрузка товаров из Ozon...")
     
     print("🛍️ Ozon Client Bot запущен!")
     application.run_polling()
