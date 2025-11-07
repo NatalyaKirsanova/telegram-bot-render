@@ -3,6 +3,68 @@ import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
+# Добавьте эту функцию в код бота
+async def test_ozon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Тестирование Ozon API через команду /testozon"""
+    await update.message.reply_text("🔍 Запускаю тест Ozon API...")
+    
+    OZON_API_KEY = os.environ.get('OZON_API_KEY')
+    OZON_CLIENT_ID = os.environ.get('OZON_CLIENT_ID')
+
+
+ # Проверяем наличие ключей
+    if not OZON_API_KEY or not OZON_CLIENT_ID:
+        await update.message.reply_text("❌ Ключи не найдены в переменных окружения!")
+        return
+    
+    headers = {
+        "Client-Id": OZON_CLIENT_ID,
+        "Api-Key": OZON_API_KEY,
+        "Content-Type": "application/json"
+    }
+    
+    # Тест 1: Список товаров
+    try:
+        response = requests.post(
+            "https://api-seller.ozon.ru/v2/product/list",
+            headers=headers,
+            json={"limit": 5},
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            count = len(data.get('result', {}).get('items', []))
+            results.append(f"✅ Товары: {count} шт.")
+        else:
+            results.append(f"❌ Товары: ошибка {response.status_code}")
+    except Exception as e:
+        results.append(f"❌ Товары: {str(e)}")
+    
+    # Тест 2: FBS заказы
+    try:
+        response = requests.post(
+            "https://api-seller.ozon.ru/v2/posting/fbs/list",
+            headers=headers, 
+            json={"limit": 5},
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            count = len(data.get('result', {}).get('postings', []))
+            results.append(f"✅ FBS заказы: {count} шт.")
+        else:
+            results.append(f"❌ FBS заказы: ошибка {response.status_code}")
+    except Exception as e:
+        results.append(f"❌ FBS заказы: {str(e)}")
+    
+    # Отправляем результаты
+    result_text = "📊 *Результаты теста Ozon API:*\n\n" + "\n".join(results)
+    await update.message.reply_text(result_text, parse_mode='Markdown')
+
+
+
+
+
 # Токены из переменных окружения Render
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 WEATHER_API_KEY = os.environ.get('WEATHER_API_KEY')
@@ -92,7 +154,7 @@ def main():
     
     # Обработчик текстовых сообщений (названия городов)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_city_message))
-    
+    application.add_handler(CommandHandler("testozon", test_ozon))
     print("🌤️ Бот погоды запущен!")
     application.run_polling()
 
