@@ -23,10 +23,10 @@ async def test_ozon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     results = []
     
-    # ТЕСТ 1: Список товаров (v2) - ПРОВЕРЕННЫЙ ENDPOINT
+    # ТЕСТ 1: Список товаров (v3) - ПРОВЕРЕННЫЙ ENDPOINT
     try:
         response = requests.post(
-            "https://api-seller.ozon.ru/v2/product/list",
+            "https://api-seller.ozon.ru/v3/product/list",
             headers=headers,
             json={
                 "filter": {
