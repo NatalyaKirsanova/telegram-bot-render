@@ -4,8 +4,14 @@ from telegram.ext import Application, CommandHandler
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 
 async def start(update, context):
-    await update.message.reply_text("✅ Бот работает!")
+    await update.message.reply_text("🎉 Бот создан прямо в GitHub!")
 
-app = Application.builder().token(BOT_TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.run_polling()
+async def help(update, context):
+    await update.message.reply_text("Помощь: /start, /help")
+
+if __name__ == '__main__':
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help))
+    print("🚀 Бот запускается...")
+    app.run_polling()
