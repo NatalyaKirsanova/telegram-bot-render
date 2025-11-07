@@ -3,18 +3,15 @@ import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Добавьте эту функцию в код бота
 async def test_ozon(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Тестирование Ozon API через команду /testozon"""
-    await update.message.reply_text("🔍 Запускаю тест Ozon API...")
+    """Расширенный тест Ozon API"""
+    await update.message.reply_text("🔍 Запускаю расширенный тест Ozon API...")
     
     OZON_API_KEY = os.environ.get('OZON_API_KEY')
     OZON_CLIENT_ID = os.environ.get('OZON_CLIENT_ID')
-
-
- # Проверяем наличие ключей
+    
     if not OZON_API_KEY or not OZON_CLIENT_ID:
-        await update.message.reply_text("❌ Ключи не найдены в переменных окружения!")
+        await update.message.reply_text("❌ Ключи не найдены!")
         return
     
     headers = {
@@ -22,45 +19,48 @@ async def test_ozon(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Api-Key": OZON_API_KEY,
         "Content-Type": "application/json"
     }
-    results = []
-    # Тест 1: Список товаров
-    try:
-        response = requests.post(
-            "https://api-seller.ozon.ru/v2/product/list",
-            headers=headers,
-            json={"limit": 5},
-            timeout=10
-        )
-        if response.status_code == 200:
-            data = response.json()
-            count = len(data.get('result', {}).get('items', []))
-            results.append(f"✅ Товары: {count} шт.")
-        else:
-            results.append(f"❌ Товары: ошибка {response.status_code}")
-    except Exception as e:
-        results.append(f"❌ Товары: {str(e)}")
     
-    # Тест 2: FBS заказы
-    try:
-        response = requests.post(
-            "https://api-seller.ozon.ru/v2/posting/fbs/list",
-            headers=headers, 
-            json={"limit": 5},
-            timeout=10
-        )
-        if response.status_code == 200:
-            data = response.json()
-            count = len(data.get('result', {}).get('postings', []))
-            results.append(f"✅ FBS заказы: {count} шт.")
-        else:
-            results.append(f"❌ FBS заказы: ошибка {response.status_code}")
-    except Exception as e:
-        results.append(f"❌ FBS заказы: {str(e)}")
+    results = []
+    
+    # Тест разных endpoints
+    endpoints = [
+        {
+            "name": "Список товаров (v3)",
+            "url": "https://api-seller.ozon.ru/v3/product/info/attributes",
+            "payload": {"filter": {}, "limit": 5}
+        },
+        {
+            "name": "FBS заказы (v3)", 
+            "url": "https://api-seller.ozon.ru/v3/posting/fbs/unfulfilled/list",
+            "payload": {"limit": 5}
+        },
+        {
+            "name": "Категории (v2)",
+            "url": "https://api-seller.ozon.ru/v2/category/tree",
+            "payload": {}
+        }
+    ]
+    
+    for endpoint in endpoints:
+        try:
+            response = requests.post(
+                endpoint["url"],
+                headers=headers,
+                json=endpoint["payload"],
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                results.append(f"✅ {endpoint['name']}")
+            else:
+                results.append(f"❌ {endpoint['name']}: {response.status_code}")
+                
+        except Exception as e:
+            results.append(f"❌ {endpoint['name']}: {str(e)}")
     
     # Отправляем результаты
     result_text = "📊 *Результаты теста Ozon API:*\n\n" + "\n".join(results)
     await update.message.reply_text(result_text, parse_mode='Markdown')
-
 
 
 
