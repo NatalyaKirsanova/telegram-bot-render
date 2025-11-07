@@ -81,7 +81,7 @@ async def test_ozon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ТЕСТ 3: Категории (v1) - ПРОСТОЙ ENDPOINT
     try:
         response = requests.post(
-            "https://api-seller.ozon.ru/v1/category/tree",
+            "https://api-seller.ozon.ru/v1/description-category/tree",
             headers=headers,
             json={},
             timeout=10
