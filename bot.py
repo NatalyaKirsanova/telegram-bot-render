@@ -22,7 +22,7 @@ async def test_ozon(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Api-Key": OZON_API_KEY,
         "Content-Type": "application/json"
     }
-    
+    results = []
     # Тест 1: Список товаров
     try:
         response = requests.post(
