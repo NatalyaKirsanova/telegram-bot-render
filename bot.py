@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # Токены из переменных окружения Render
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
-WEATHER_API_KEY = os.environ.get('WEATHER_API_KEY')  # Добавьте этот ключ в Render
+WEATHER_API_KEY = os.environ.get('WEATHER_API_KEY')
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /start"""
@@ -15,85 +15,65 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Например: Москва, London, Paris\n\n"
         "Команды:\n"
         "/start - начать работу\n"
-        "/help - помощь\n"
-        "/weather - узнать погоду"
+        "/help - помощь"
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /help"""
     await update.message.reply_text(
         "📋 Как пользоваться ботом:\n\n"
-        "1. Напишите название города на русском или английском\n"
-        "2. Или используйте команду /weather Москва\n"
-        "3. Бот покажет текущую погоду и прогноз\n\n"
+        "Напишите название города на русском или английском\n\n"
         "Примеры:\n"
         "• Москва\n"
-        "• London\n"
-        "• /weather Paris"
+        "• Лондон\n"
+        "• Berlin\n"
+        "• Париж"
     )
-
-async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда /weather [город]"""
-    if not context.args:
-        await update.message.reply_text("⚠️ Укажите город: /weather Москва")
-        return
-    
-    city = ' '.join(context.args)
-    await get_weather(update, city)
 
 async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка сообщений с названием города"""
-    city = update.message.text
-    await get_weather(update, city)
-
-async def get_weather(update: Update, city: str):
-    """Получение погоды по API"""
+    city = update.message.text.strip()
+    
     if not WEATHER_API_KEY:
         await update.message.reply_text("❌ Сервис погоды временно недоступен")
         return
     
     try:
-        # Запрос к OpenWeatherMap API
-        url = f"http://api.openweathermap.org/data/2.5/weather"
+        # WeatherAPI.com - более надежный сервис
+        url = "http://api.weatherapi.com/v1/current.json"
         params = {
+            'key': WEATHER_API_KEY,
             'q': city,
-            'appid': WEATHER_API_KEY,
-            'units': 'metric',  # градусы Цельсия
             'lang': 'ru'
         }
         
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=10)
         data = response.json()
         
-        if response.status_code == 200:
+        if 'error' not in data:
             # Парсим данные о погоде
-            temperature = data['main']['temp']
-            feels_like = data['main']['feels_like']
-            humidity = data['main']['humidity']
-            pressure = data['main']['pressure']
-            description = data['weather'][0]['description']
-            wind_speed = data['wind']['speed']
-            city_name = data['name']
-            country = data['sys']['country']
+            location = data['location']
+            current = data['current']
             
-            # Формируем ответ
             weather_text = (
-                f"🌍 {city_name}, {country}\n"
-                f"🌡️ Температура: {temperature}°C\n"
-                f"💭 Ощущается как: {feels_like}°C\n"
-                f"📝 {description.capitalize()}\n"
-                f"💧 Влажность: {humidity}%\n"
-                f"🌬️ Ветер: {wind_speed} м/с\n"
-                f"📊 Давление: {pressure} гПа"
+                f"🌍 {location['name']}, {location['country']}\n"
+                f"🌡️ Температура: {current['temp_c']}°C\n"
+                f"💭 Ощущается как: {current['feelslike_c']}°C\n"
+                f"📝 {current['condition']['text']}\n"
+                f"💧 Влажность: {current['humidity']}%\n"
+                f"🌬️ Ветер: {current['wind_kph']} км/ч\n"
+                f"📊 Давление: {current['pressure_mb']} гПа\n"
+                f"🌫️ Видимость: {current['vis_km']} км"
             )
             
             await update.message.reply_text(weather_text)
             
         else:
-            await update.message.reply_text(f"❌ Город '{city}' не найден. Попробуйте другой город.")
+            error_message = data['error']['message']
+            await update.message.reply_text(f"❌ {error_message}")
             
     except Exception as e:
-        await update.message.reply_text("❌ Ошибка при получении погоды. Попробуйте позже.")
+        await update.message.reply_text("❌ Ошибка при получении погоды. Попробуйте другой город или позже.")
 
 def main():
     """Запуск бота"""
@@ -109,7 +89,6 @@ def main():
     # Обработчики команд
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("weather", weather_command))
     
     # Обработчик текстовых сообщений (названия городов)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_city_message))
