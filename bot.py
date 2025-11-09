@@ -638,24 +638,28 @@ async def checkout(query, context):
         return
     
     cart = user_carts[user_id]
-    total = sum(products_cache[idx]['price'] * qty for idx, qty in cart.items() if products_cache.get(idx))
-    items_count = sum(cart.values())
+    total = 0
+    items_count = 0
     
-    # Добавляем заказ
+    for idx, qty in cart.items():
+        if products_cache.get(idx):
+            total += products_cache[idx]['price'] * qty
+            items_count += qty
+    
+    # Сохраняем заказ
     if user_id not in user_orders:
         user_orders[user_id] = []
     
     user_orders[user_id].append({
         'total': total,
         'items_count': items_count,
-        'date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        'date': datetime.datetime.now().strftime("%H:%M %d.%m.%Y")
     })
     
     # Очищаем корзину
     user_carts[user_id] = {}
     
     await query.edit_message_text(f"✅ Заказ оформлен!\n💰 Сумма: {total} ₽\n📦 Товаров: {items_count} шт.")
-
 async def clear_cart(query, context):
     """Очищает корзину"""
     user_id = query.from_user.id
