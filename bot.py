@@ -637,41 +637,24 @@ async def checkout(query, context):
         await query.answer("❌ Корзина пуста", show_alert=True)
         return
     
-    # Создаем заказ
-    import datetime
     cart = user_carts[user_id]
-    total = 0
-    items_count = 0
+    total = sum(products_cache[idx]['price'] * qty for idx, qty in cart.items() if products_cache.get(idx))
+    items_count = sum(cart.values())
     
-    for product_index, quantity in cart.items():
-        product = products_cache.get(product_index)
-        if product:
-            total += product['price'] * quantity
-            items_count += quantity
-    
-    order = {
-        'total': total,
-        'items_count': items_count,
-        'date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-        'products': cart.copy()
-    }
-    
+    # Добавляем заказ
     if user_id not in user_orders:
         user_orders[user_id] = []
     
-    user_orders[user_id].append(order)
+    user_orders[user_id].append({
+        'total': total,
+        'items_count': items_count,
+        'date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    })
     
-    # ОЧИЩАЕМ КОРЗИНУ
+    # Очищаем корзину
     user_carts[user_id] = {}
     
-    await query.edit_message_text(
-        f"✅ *Заказ оформлен!*\n\n"
-        f"💰 Сумма: {total} ₽\n"
-        f"📦 Товаров: {items_count} шт.\n"
-        f"📅 Дата: {order['date']}\n\n"
-        f"Спасибо за покупку! 🎉",
-        parse_mode='Markdown'
-    )
+    await query.edit_message_text(f"✅ Заказ оформлен!\n💰 Сумма: {total} ₽\n📦 Товаров: {items_count} шт.")
 
 async def clear_cart(query, context):
     """Очищает корзину"""
