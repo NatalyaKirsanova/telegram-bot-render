@@ -62,14 +62,14 @@ class OzonSellerAPI:
             
             # Получаем детальную информацию о товарах
             info_response = requests.post(
-                "https://api-seller.ozon.ru/v2/product/info/list",
+                "https://api-seller.ozon.ru/v3/product/info/list",
                 headers=self.headers,
                 json={"offer_id": offer_ids},
                 timeout=10
             )
             
             if info_response.status_code != 200:
-                print(f"❌ Ошибка v2/product/info/list: {info_response.status_code}")
+                print(f"❌ Ошибка v3/product/info/list: {info_response.status_code}")
                 return None
             
             info_data = info_response.json()
