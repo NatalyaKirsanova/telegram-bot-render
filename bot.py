@@ -677,8 +677,7 @@ async def checkout(query, context):
     """Оформляет заказ"""
     user_id = query.from_user.id
     
-    print(f"🔍 Проверяем корзину пользователя {user_id}: {user_carts.get(user_id)}")
-    
+        
     if user_id not in user_carts or not user_carts[user_id]:
         await query.answer("❌ Корзина пуста", show_alert=True)
         return
