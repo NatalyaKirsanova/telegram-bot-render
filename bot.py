@@ -204,10 +204,10 @@ class OzonSellerAPI:
     
         try:
             # Прямой доступ к цене по структуре из вашего примера
-            price_info = price_item.get('price', {})
+            price_info = price_item.get('marketing_seller_price', {})
         
             # Основная цена
-            main_price = price_info.get('price')
+            main_price = price_info.get('marketing_seller_price')
             if main_price:
                 price_int = int(float(main_price))
                 if price_int > 0:
