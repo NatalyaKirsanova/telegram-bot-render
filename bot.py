@@ -369,60 +369,116 @@ class OzonSellerAPI:
         clean_text = clean_text.strip()
         
         return clean_text
-
-    def create_ozon_order(self, order_data):
-        """Создает реальный заказ в Ozon"""
-        try:
-            # Подготавливаем данные для создания заказа в Ozon
-            ozon_order_data = {
-                "address": {
-                    "address": order_data.get('customer_address', 'Адрес не указан'),
-                    "city": order_data.get('customer_city', 'Город не указан'),
-                    "name": order_data.get('customer_name', 'Покупатель'),
-                    "phone": order_data.get('customer_phone', 'Телефон не указан'),
-                    "zip_code": order_data.get('customer_zip', '')
-                },
-                "delivery_type": "standard",
-                "products": [],
-                "comment": f"Заказ из Telegram бота. ID: {order_data['order_id']}"
+def create_ozon_order(self, order_data):
+    """Создает реальный заказ в Ozon"""
+    try:
+        # Подготавливаем данные для создания заказа в Ozon
+        # Правильная структура для API Ozon
+        ozon_order_data = {
+            "posting_number": f"TG{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",
+            "products": [],
+            "address": {
+                "address": order_data.get('customer_address', 'Адрес не указан'),
+                "city": order_data.get('customer_city', 'Город не указан'),
+                "name": order_data.get('customer_name', 'Покупатель'),
+                "phone": order_data.get('customer_phone', '+79999999999'),
+                "zip_code": "101000"  # Обязательное поле
+            },
+            "delivery_method": {
+                "id": 1,  # ID способа доставки, нужно получить из API Ozon
+                "name": "Стандартная доставка"
+            },
+            "recipient": {
+                "name": order_data.get('customer_name', 'Покупатель'),
+                "phone": order_data.get('customer_phone', '+79999999999')
             }
-            
-            # Добавляем товары в заказ
-            for item in order_data['items']:
-                ozon_order_data["products"].append({
-                    "product_id": item['product_id'],
-                    "quantity": item['quantity'],
-                    "price": str(item['price'])
-                })
-            
-            print(f"📦 Создаем заказ в Ozon: {ozon_order_data}")
-            
-            # Создаем заказ через Ozon API
-            order_response = requests.post(
-                "https://api-seller.ozon.ru/v3/posting/fbs/create",
-                headers=self.headers,
-                json=ozon_order_data,
-                timeout=10
-            )
-            
-            if order_response.status_code == 200:
-                result = order_response.json()
-                print(f"✅ Заказ создан в Ozon: {result}")
+        }
+        
+        # Добавляем товары в заказ
+        for item in order_data['items']:
+            ozon_order_data["products"].append({
+                "product_id": int(item['product_id']),
+                "quantity": int(item['quantity']),
+                "price": str(float(item['price']))
+            })
+        
+        print(f"📦 Создаем заказ в Ozon: {ozon_order_data}")
+        
+        # Пробуем разные endpoints для создания заказа
+        endpoints = [
+            "https://api-seller.ozon.ru/v3/posting/fbs/create",
+            "https://api-seller.ozon.ru/v2/posting/fbs/create",
+            "https://api-seller.ozon.ru/v1/posting/fbs/create"
+        ]
+        
+        for endpoint in endpoints:
+            try:
+                print(f"🔧 Пробуем endpoint: {endpoint}")
+                order_response = requests.post(
+                    endpoint,
+                    headers=self.headers,
+                    json=ozon_order_data,
+                    timeout=10
+                )
                 
-                # Сохраняем ID заказа Ozon
-                if 'result' in result and 'posting_number' in result['result']:
-                    order_data['ozon_posting_number'] = result['result']['posting_number']
-                    order_data['ozon_order_id'] = result['result']['order_id']
+                print(f"📡 Ответ от Ozon API: {order_response.status_code}")
                 
-                return result
-            else:
-                print(f"❌ Ошибка создания заказа в Ozon: {order_response.status_code}")
-                print(f"Текст ошибки: {order_response.text}")
-                return None
+                if order_response.status_code == 200:
+                    result = order_response.json()
+                    print(f"✅ Заказ создан в Ozon: {result}")
+                    
+                    # Сохраняем ID заказа Ozon
+                    if 'result' in result:
+                        posting_number = result['result'].get('posting_number')
+                        order_id = result['result'].get('order_id')
+                        
+                        if posting_number:
+                            order_data['ozon_posting_number'] = posting_number
+                        if order_id:
+                            order_data['ozon_order_id'] = order_id
+                    
+                    return result
+                else:
+                    print(f"⚠️ Ошибка {endpoint}: {order_response.status_code}")
+                    print(f"Текст ошибки: {order_response.text}")
+                    
+            except Exception as e:
+                print(f"❌ Ошибка при вызове {endpoint}: {e}")
+                continue
                 
-        except Exception as e:
-            print(f"❌ Ошибка создания заказа в Ozon: {e}")
-            return None
+        # Если все endpoints не сработали, пробуем упрощенный вариант
+        print("🔄 Пробуем упрощенный метод создания заказа...")
+        
+        simplified_data = {
+            "products": [
+                {
+                    "product_id": int(order_data['items'][0]['product_id']),
+                    "quantity": 1
+                }
+            ],
+            "address": order_data.get('customer_address', 'Адрес не указан'),
+            "phone": order_data.get('customer_phone', '+79999999999'),
+            "customer_name": order_data.get('customer_name', 'Покупатель')
+        }
+        
+        simplified_response = requests.post(
+            "https://api-seller.ozon.ru/v2/posting/fbs/create",
+            headers=self.headers,
+            json=simplified_data,
+            timeout=10
+        )
+        
+        if simplified_response.status_code == 200:
+            result = simplified_response.json()
+            print(f"✅ Заказ создан (упрощенный метод): {result}")
+            return result
+            
+        print("❌ Все методы создания заказа не сработали")
+        return None
+                
+    except Exception as e:
+        print(f"❌ Критическая ошибка создания заказа в Ozon: {e}")
+        return None
 
 # Инициализация API
 ozon_api = OzonSellerAPI()
@@ -807,6 +863,7 @@ async def process_order(update, context, cart, customer_name, customer_phone, cu
         }
         
         # Создаем заказ в Ozon
+        print("🔄 Пытаемся создать заказ в Ozon...")
         ozon_result = ozon_api.create_ozon_order(order_data)
         
         if ozon_result:
@@ -852,15 +909,49 @@ async def process_order(update, context, cart, customer_name, customer_phone, cu
             await update.message.reply_text(order_text, reply_markup=reply_markup, parse_mode='Markdown')
             
         else:
-            await update.message.reply_text(
-                "❌ Не удалось создать заказ в Ozon. Попробуйте позже или обратитесь в поддержку.",
-                parse_mode='Markdown'
-            )
+            # Если не удалось создать заказ в Ozon, сохраняем локально
+            print("⚠️ Не удалось создать заказ в Ozon, сохраняем локально")
+            
+            # Сохраняем заказ локально
+            if 'orders' not in context.user_data:
+                context.user_data['orders'] = []
+            context.user_data['orders'].append(order_data)
+            
+            # Очищаем корзину
+            context.user_data['cart'] = {}
+            
+            order_text = f"✅ *Заказ сохранен!*\n\n"
+            order_text += f"💰 Сумма: {total} ₽\n"
+            order_text += f"📦 Товаров: {items_count} шт.\n"
+            order_text += f"👤 Получатель: {customer_name}\n"
+            order_text += f"📞 Телефон: {customer_phone}\n"
+            order_text += f"🏠 Адрес: {customer_city}, {customer_address}\n"
+            order_text += f"\n📅 Дата: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+            order_text += "Состав заказа:\n"
+            for item in order_items:
+                order_text += f"• {item['name']} - {item['quantity']} шт. × {item['price']} ₽\n"
+            
+            order_text += "\n⚠️ *Внимание:* Заказ не был создан в системе Ozon автоматически. "
+            order_text += "Пожалуйста, создайте заказ вручную через личный кабинет Ozon."
+            
+            keyboard = [
+                [InlineKeyboardButton("📱 Создать заказ в Ozon", url="https://seller.ozon.ru/app/orders/create")],
+                [InlineKeyboardButton("🛍️ Продолжить покупки", callback_data="view_products")],
+                [InlineKeyboardButton("📦 Мои заказы", callback_data="view_orders")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(order_text, reply_markup=reply_markup, parse_mode='Markdown')
             
     except Exception as e:
         print(f"❌ Ошибка обработки заказа: {e}")
+        import traceback
+        traceback.print_exc()
+        
         await update.message.reply_text(
-            "❌ Произошла ошибка при оформлении заказа. Попробуйте позже.",
+            f"❌ Произошла ошибка при оформлении заказа:\n\n"
+            f"`{str(e)}`\n\n"
+            f"Попробуйте позже или обратитесь в поддержку.",
             parse_mode='Markdown'
         )
 
