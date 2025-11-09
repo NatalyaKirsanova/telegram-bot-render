@@ -197,7 +197,16 @@ async def load_real_products():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приветствие и главное меню"""
-    user = update.message.from_user
+    # Получаем пользователя в зависимости от типа update
+    if update.message:
+        user = update.message.from_user
+        chat_id = update.message.chat_id
+    elif update.callback_query:
+        user = update.callback_query.from_user
+        chat_id = update.callback_query.message.chat_id
+    else:
+        # Если не можем получить пользователя, выходим
+        return
     
     # Загружаем товары при старте
     if not products_cache:
@@ -211,13 +220,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
-            "❌ *Товары временно недоступны*\n\n"
-            "Не удалось загрузить товары из магазина.\n"
-            "Попробуйте обновить или обратитесь в поддержку.",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        if update.message:
+            await update.message.reply_text(
+                "❌ *Товары временно недоступны*\n\n"
+                "Не удалось загрузить товары из магазина.\n"
+                "Попробуйте обновить или обратитесь в поддержку.",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            await update.callback_query.edit_message_text(
+                "❌ *Товары временно недоступны*\n\n"
+                "Не удалось загрузить товары из магазина.\n"
+                "Попробуйте обновить или обратитесь в поддержку.",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
         return
     
     keyboard = [
@@ -237,7 +255,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Нажмите 'Смотреть товары' чтобы начать покупки:"
     )
     
-    await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+    if update.message:
+        await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+    else:
+        await update.callback_query.edit_message_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def view_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает список товаров"""
@@ -580,37 +601,44 @@ async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
-
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик callback-ов"""
     query = update.callback_query
+    
+    if not query:
+        return
+    
     data = query.data
     
-    if data == "view_products":
-        await view_products(update, context)
-    elif data in ["product_prev", "product_next"]:
-        await handle_product_navigation(update, context)
-    elif data == "none":
-        # Просто отвечаем на callback без изменений
-        await query.answer()
-    elif data.startswith("add_"):
-        await add_to_cart(update, context)
-    elif data == "cart":
-        await show_cart(update, context)
-    elif data == "checkout":
-        await checkout(update, context)
-    elif data == "clear_cart":
-        user_id = query.from_user.id
-        user_carts[user_id] = {}
-        await show_cart(update, context)
-    elif data == "my_orders":
-        await show_my_orders(update, context)
-    elif data == "refresh_products":
-        await refresh_products(update, context)
-    elif data == "support":
-        await support(update, context)
-    elif data == "back_main":
-        await start(update, context)
+    try:
+        if data == "view_products":
+            await view_products(update, context)
+        elif data in ["product_prev", "product_next"]:
+            await handle_product_navigation(update, context)
+        elif data == "none":
+            # Просто отвечаем на callback без изменений
+            await query.answer()
+        elif data.startswith("add_"):
+            await add_to_cart(update, context)
+        elif data == "cart":
+            await show_cart(update, context)
+        elif data == "checkout":
+            await checkout(update, context)
+        elif data == "clear_cart":
+            user_id = query.from_user.id
+            user_carts[user_id] = {}
+            await show_cart(update, context)
+        elif data == "my_orders":
+            await show_my_orders(update, context)
+        elif data == "refresh_products":
+            await refresh_products(update, context)
+        elif data == "support":
+            await support(update, context)
+        elif data == "back_main":
+            await start(update, context)
+    except Exception as e:
+        print(f"❌ Ошибка в обработчике callback: {e}")
+        await query.answer("❌ Произошла ошибка, попробуйте снова")
 
 def main():
     """Запуск бота"""
