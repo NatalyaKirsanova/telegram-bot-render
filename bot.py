@@ -28,10 +28,10 @@ class OzonSellerAPI:
         print("🔄 Получение реальных товаров из Ozon API...")
         
         try:
-            # 1. Получаем список товаров через v2/product/list
-            print("🔍 Получаем список товаров через v2/product/list...")
+            # 1. Получаем список товаров через v3/product/list
+            print("🔍 Получаем список товаров через v3/product/list...")
             list_response = requests.post(
-                "https://api-seller.ozon.ru/v2/product/list",
+                "https://api-seller.ozon.ru/v3/product/list",
                 headers=self.headers,
                 json={
                     "filter": {"visibility": "ALL"},
@@ -41,7 +41,7 @@ class OzonSellerAPI:
             )
             
             if list_response.status_code != 200:
-                print(f"❌ Ошибка v2/product/list: {list_response.status_code}")
+                print(f"❌ Ошибка v3/product/list: {list_response.status_code}")
                 print(f"Текст ошибки: {list_response.text}")
                 return None
             
