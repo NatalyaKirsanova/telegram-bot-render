@@ -48,17 +48,20 @@ class OzonSellerAPI:
                 print("❌ Нет товаров в ответе")
                 return None
             
-            # Получаем ID товаров для запроса полной информации
+            # Детальная информация о каждом товаре из v3/product/list
+            print("🔍 Детальная информация о товарах из v3/product/list:")
+            for i, item in enumerate(items):
+                product_id = item.get('product_id')
+                offer_id = item.get('offer_id')
+                name = item.get('name')
+                print(f"  Товар {i+1}: ID={product_id}, Offer={offer_id}, Name={name}")
+            
+            # Получаем ID товаров для запроса цен
             product_ids = []
             for item in items:
                 product_id = item.get('product_id')
                 if product_id:
                     product_ids.append(product_id)
-            
-            print(f"🔍 Запрашиваем полную информацию для {len(product_ids)} товаров через v3/product/list...")
-            
-            # Получаем полную информацию о товарах через v3/product/list
-            products_info = self.get_products_info_v3(product_ids)
             
             print(f"🔍 Запрашиваем цены для {len(product_ids)} товаров через v5/product/info/prices...")
             
@@ -67,18 +70,21 @@ class OzonSellerAPI:
             
             # Объединяем данные товаров и цен
             enhanced_products = []
-            for product_info in products_info:
-                product_id = product_info.get('id')
-                offer_id = product_info.get('offer_id')
-                name = product_info.get('name')
+            for item in items:
+                product_id = item.get('product_id')
+                offer_id = item.get('offer_id')
                 
-                # Проверяем наличие названия и offer_id
-                if not name:
-                    print(f"⚠️ Пропускаем товар без названия: ID={product_id}, Offer={offer_id}")
-                    continue
+                # Создаем название на основе offer_id
+                if offer_id:
+                    # Создаем читаемое название из offer_id
+                    clean_offer_id = offer_id.replace('-', ' ').replace('_', ' ').replace('/', ' ').replace('  ', ' ').strip()
+                    name = f"Товар {clean_offer_id}"
+                else:
+                    name = f"Товар {product_id}"
                 
+                # Проверяем наличие offer_id
                 if not offer_id:
-                    print(f"⚠️ Пропускаем товар без offer_id: ID={product_id}, Name='{name}'")
+                    print(f"⚠️ Пропускаем товар без offer_id: ID={product_id}")
                     continue
                 
                 price_value = prices_map.get(str(product_id), 0)
@@ -88,15 +94,12 @@ class OzonSellerAPI:
                     print(f"⚠️ Пропускаем товар без цены: {name} (ID: {product_id})")
                     continue
                 
-                description = product_info.get('description', f'Артикул: {offer_id}')
+                description = item.get('description', f'Артикул: {offer_id}')
                 if description and len(description) > 150:
                     description = description[:150] + "..."
                 
-                # Получаем количество из stocks
-                quantity = 0
-                stocks = product_info.get('stocks', {}).get('stocks', [])
-                if stocks:
-                    quantity = sum(stock.get('present', 0) for stock in stocks)
+                # Получаем количество из item
+                quantity = item.get('quantity', 0)
                 
                 enhanced_product = {
                     'product_id': product_id,
@@ -115,42 +118,6 @@ class OzonSellerAPI:
         except Exception as e:
             print(f"❌ Ошибка запроса к Ozon API: {e}")
             return None
-    
-    def get_products_info_v3(self, product_ids):
-        """Получает полную информацию о товарах через v3/product/list"""
-        print("🔍 Используем v3/product/list...")
-        try:
-            info_response = requests.post(
-                "https://api-seller.ozon.ru/v3/product/list",
-                headers=self.headers,
-                json={
-                    "product_id": product_ids
-                },
-                timeout=10
-            )
-            
-            if info_response.status_code == 200:
-                info_data = info_response.json()
-                info_items = info_data.get('result', {}).get('items', [])
-                print(f"📊 v3: Получена информация для {len(info_items)} товаров")
-                
-                # Детальная информация о каждом товаре
-                print("🔍 Детальная информация о товарах из v3:")
-                for i, item in enumerate(info_items):
-                    product_id = item.get('id')
-                    offer_id = item.get('offer_id')
-                    name = item.get('name')
-                    print(f"  Товар {i+1}: ID={product_id}, Offer={offer_id}, Name='{name}'")
-                
-                return info_items
-            else:
-                print(f"❌ v3 endpoint ошибка: {info_response.status_code}")
-                print(f"Текст ошибки: {info_response.text}")
-                return []
-                
-        except Exception as e:
-            print(f"❌ Ошибка v3 endpoint: {e}")
-            return []
     
     def get_prices_v5(self, product_ids):
         """Получает цены через v5/product/info/prices"""
