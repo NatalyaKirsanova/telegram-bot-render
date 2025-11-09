@@ -247,33 +247,63 @@ class OzonSellerAPI:
             return 0
             
     def _get_products_stocks(self, product_ids):
-        """Получает остатки товаров через v1/product/info/warehouse/stocks"""
+        """Получает остатки товаров через v1/product/info/stocks-by-warehouse/fbs"""
         stocks_data = {}
         try:
-            # Разбиваем на группы по 50 product_id
-            for i in range(0, len(product_ids), 50):
-                batch_ids = product_ids[i:i+50]
-                
-                stocks_response = requests.post(
-                    "https://api-seller.ozon.ru/v1/product/info/warehouse/stocks",
+                # Для этого endpoint нужно использовать offer_id вместо product_id
+            # Сначала получим offer_id для наших product_ids
+            offer_ids = []
+            for product_id in product_ids:
+                # Получаем информацию о товаре чтобы узнать offer_id
+                product_info_response = requests.post(
+                    "https://api-seller.ozon.ru/v2/product/info",
                     headers=self.headers,
                     json={
-                        "product_id": batch_ids,
-                        "limit": 1000
+                        "product_id": product_id
                     },
                     timeout=10
                 )
-                
+            
+                if product_info_response.status_code == 200:
+                    product_info = product_info_response.json()
+                    offer_id = product_info.get('result', {}).get('offer_id')
+                    if offer_id:
+                        offer_ids.append(offer_id)
+                        print(f"🔗 Для product_id {product_id} найден offer_id: {offer_id}")
+                else:
+                    print(f"⚠️ Ошибка получения информации о товаре {product_id}: {product_info_response.status_code}")
+        
+            if not offer_ids:
+                print("❌ Не удалось получить offer_id для запроса остатков")
+                return {}
+        
+            # Разбиваем на группы по 50 offer_id
+            for i in range(0, len(offer_ids), 50):
+                batch_offer_ids = offer_ids[i:i+50]
+            
+                stocks_response = requests.post(
+                    "https://api-seller.ozon.ru/v1/product/info/stocks-by-warehouse/fbs",
+                    headers=self.headers,
+                    json={
+                        "offer_id": batch_offer_ids
+                    },
+                    timeout=10
+                )
+            
                 if stocks_response.status_code == 200:
                     stocks_result = stocks_response.json()
-                    print(f"📦 Получен ответ от v1/product/info/warehouse/stocks")
-                    
-                    # Обрабатываем структуру с массивом stocks
-                    stock_items = stocks_result.get('stocks', [])
-                    print(f"📦 Получены остатки для {len(stock_items)} записей складов")
-                    
+                    print(f"📦 Получен ответ от v1/product/info/stocks-by-warehouse/fbs")
+                
+                    # Обрабатываем структуру с массивом result
+                    stock_items = stocks_result.get('result', [])
+                    print(f"📦 Получены остатки FBS для {len(stock_items)} товаров")
+                
                     for stock_item in stock_items:
                         product_id = stock_item.get('product_id')
+                        offer_id = stock_item.get('offer_id')
+                        present = stock_item.get('present', 0)
+                        reserved = stock_item.get('reserved', 0)
+                    
                         if product_id:
                             # Для каждого товара создаем или обновляем запись
                             if product_id not in stocks_data:
@@ -283,26 +313,27 @@ class OzonSellerAPI:
                                     'free_stock': 0
                                 }
                         
-                            # Суммируем остатки по всем складам
-                            stocks_data[product_id]['present'] += stock_item.get('present', 0)
-                            stocks_data[product_id]['reserved'] += stock_item.get('reserved', 0)
-                            stocks_data[product_id]['free_stock'] += stock_item.get('free_stock', 0)
-                            
-                            print(f"📦 Складские данные для {product_id}: present={stock_item.get('present')}, reserved={stock_item.get('reserved')}, free_stock={stock_item.get('free_stock')}")
+                            # Суммируем остатки по всем складам FBS
+                            stocks_data[product_id]['present'] += present
+                            stocks_data[product_id]['reserved'] += reserved
+                            stocks_data[product_id]['free_stock'] = max(0, stocks_data[product_id]['present'] - stocks_data[product_id]['reserved'])
+                        
+                            print(f"📦 FBS данные для {product_id} (offer: {offer_id}): present={present}, reserved={reserved}")
                 
                     # Выводим итоговые суммы по каждому товару
                     for product_id, data in stocks_data.items():
-                        print(f"📊 ИТОГО для товара {product_id}: present={data['present']}, reserved={data['reserved']}, free_stock={data['free_stock']}")
+                        print(f"📊 ИТОГО FBS для товара {product_id}: present={data['present']}, reserved={data['reserved']}, free_stock={data['free_stock']}")
                     
                 else:
-                    print(f"⚠️ Ошибка получения остатков v1: {stocks_response.status_code}")
+                    print(f"⚠️ Ошибка получения остатков FBS: {stocks_response.status_code}")
                     print(f"Текст ошибки: {stocks_response.text}")
         
             return stocks_data
         
         except Exception as e:
-            print(f"❌ Ошибка получения остатков v1: {e}")
+            print(f"❌ Ошибка получения остатков FBS: {e}")
             return {}
+        
     def _get_products_stocks_v2(self, product_ids):
         """Альтернативный метод получения остатков через v2/products/stocks"""
         stocks_data = {}
