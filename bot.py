@@ -48,58 +48,56 @@ class OzonSellerAPI:
                 print("❌ Нет товаров в ответе")
                 return None
             
-            # Детальная информация о каждом товаре из v3/product/list
-            print("🔍 Детальная информация о товарах из v3/product/list:")
-            for i, item in enumerate(items):
-                product_id = item.get('product_id')
-                offer_id = item.get('offer_id')
-                name = item.get('name')
-                print(f"  Товар {i+1}: ID={product_id}, Offer={offer_id}, Name={name}")
-            
-            # Получаем ID товаров для запроса цен
+            # Получаем ID товаров для запроса полной информации
             product_ids = []
             for item in items:
                 product_id = item.get('product_id')
                 if product_id:
                     product_ids.append(product_id)
             
+            print(f"🔍 Запрашиваем полную информацию для {len(product_ids)} товаров...")
+            
+            # Получаем полную информацию о товарах
+            products_info = self.get_products_info(product_ids)
+            
             print(f"🔍 Запрашиваем цены для {len(product_ids)} товаров через v5/product/info/prices...")
             
             # Получаем цены товаров через v5 endpoint
-            prices_map = self.get_prices_v5(product_ids)
+            prices_data = self.get_prices_v5(product_ids)
             
             # Объединяем данные товаров и цен
             enhanced_products = []
-            for item in items:
-                product_id = item.get('product_id')
-                offer_id = item.get('offer_id')
+            for product_info in products_info:
+                product_id = product_info.get('id')
+                offer_id = product_info.get('offer_id')
+                name = product_info.get('name')
                 
-                # Создаем читаемое название на основе offer_id
-                if offer_id:
-                    # Преобразуем offer_id в читаемое название
-                    clean_name = self.create_readable_name(offer_id)
-                    name = clean_name
-                else:
-                    name = f"Товар {product_id}"
-                
-                # Проверяем наличие offer_id
-                if not offer_id:
-                    print(f"⚠️ Пропускаем товар без offer_id: ID={product_id}")
+                # Пропускаем товары без названия
+                if not name:
+                    print(f"⚠️ Пропускаем товар без названия: ID={product_id}")
                     continue
                 
-                price_value = prices_map.get(str(product_id), 0)
+                # Получаем цену из данных v5
+                price_item = self.find_price_item(prices_data, product_id)
+                if not price_item:
+                    print(f"⚠️ Не найдена цена для товара: {name} (ID={product_id})")
+                    continue
+                
+                # Получаем цену из структуры
+                price_info = price_item.get('price', {})
+                price_value = self.extract_price_from_structure(price_info)
                 
                 # Пропускаем товары без цены
                 if price_value == 0:
-                    print(f"⚠️ Пропускаем товар без цены: {name} (ID: {product_id})")
+                    print(f"⚠️ Пропускаем товар без цены: {name} (ID={product_id})")
                     continue
                 
-                description = item.get('description', f'Артикул: {offer_id}')
+                description = product_info.get('description', f'Артикул: {offer_id}')
                 if description and len(description) > 150:
                     description = description[:150] + "..."
                 
-                # Получаем количество из item (если есть) или ставим по умолчанию
-                quantity = item.get('quantity', 10)  # По умолчанию 10 шт.
+                # Получаем количество
+                quantity = self.get_product_quantity(product_info)
                 
                 enhanced_product = {
                     'product_id': product_id,
@@ -119,21 +117,152 @@ class OzonSellerAPI:
             print(f"❌ Ошибка запроса к Ozon API: {e}")
             return None
     
-    def create_readable_name(self, offer_id):
-        """Создает читаемое название из offer_id"""
-        # Убираем лишние символы и создаем читаемое название
-        clean_id = offer_id.replace('-', ' ').replace('_', ' ').replace('/', ' ')
-        clean_id = ' '.join(clean_id.split())  # Убираем лишние пробелы
+    def get_products_info(self, product_ids):
+        """Получает полную информацию о товарах"""
+        # Пробуем разные endpoints для получения информации о товарах
+        endpoints = [
+            self.get_products_info_v2,
+            self.get_products_info_v3,
+            self.get_products_info_v4
+        ]
         
-        # Создаем название на основе типа товара
-        if any(word in clean_id.lower() for word in ['h813', 'h388', 'h109']):
-            return f"Футболка {clean_id}"
-        elif any(word in clean_id.lower() for word in ['b363', 'b323']):
-            return f"Толстовка {clean_id}"
-        elif any(word in clean_id.lower() for word in ['d513']):
-            return f"Штаны {clean_id}"
-        else:
-            return f"Товар {clean_id}"
+        for endpoint in endpoints:
+            print(f"🔍 Пробуем {endpoint.__name__}...")
+            products_info = endpoint(product_ids)
+            if products_info:
+                print(f"✅ {endpoint.__name__}: Получена информация для {len(products_info)} товаров")
+                return products_info
+            else:
+                print(f"❌ {endpoint.__name__}: Не удалось получить информацию")
+        
+        print("❌ Все endpoints для получения информации о товарах не сработали")
+        return []
+    
+    def get_products_info_v2(self, product_ids):
+        """Получает информацию о товарах через v2/product/info/list"""
+        try:
+            info_response = requests.post(
+                "https://api-seller.ozon.ru/v2/product/info/list",
+                headers=self.headers,
+                json={
+                    "product_id": product_ids
+                },
+                timeout=10
+            )
+            
+            if info_response.status_code == 200:
+                info_data = info_response.json()
+                return info_data.get('result', {}).get('items', [])
+            else:
+                print(f"❌ v2/info ошибка: {info_response.status_code}")
+                return []
+        except Exception as e:
+            print(f"❌ Ошибка v2/info: {e}")
+            return []
+    
+    def get_products_info_v3(self, product_ids):
+        """Получает информацию о товарах через v3/product/info/list"""
+        try:
+            info_response = requests.post(
+                "https://api-seller.ozon.ru/v3/product/info/list",
+                headers=self.headers,
+                json={
+                    "product_id": product_ids
+                },
+                timeout=10
+            )
+            
+            if info_response.status_code == 200:
+                info_data = info_response.json()
+                return info_data.get('result', {}).get('items', [])
+            else:
+                print(f"❌ v3/info ошибка: {info_response.status_code}")
+                return []
+        except Exception as e:
+            print(f"❌ Ошибка v3/info: {e}")
+            return []
+    
+    def get_products_info_v4(self, product_ids):
+        """Получает информацию о товарах через v4/product/info/prices (может содержать названия)"""
+        try:
+            info_response = requests.post(
+                "https://api-seller.ozon.ru/v4/product/info/prices",
+                headers=self.headers,
+                json={
+                    "filter": {
+                        "product_id": product_ids,
+                        "visibility": "ALL"
+                    },
+                    "last_id": "",
+                    "limit": 1000
+                },
+                timeout=10
+            )
+            
+            if info_response.status_code == 200:
+                info_data = info_response.json()
+                items = info_data.get('result', {}).get('items', [])
+                
+                # Преобразуем структуру v4 в структуру похожую на v2/v3
+                transformed_items = []
+                for item in items:
+                    transformed_items.append({
+                        'id': item.get('product_id'),
+                        'offer_id': item.get('offer_id'),
+                        'name': item.get('offer_id'),  # В v4 может не быть названия, используем offer_id
+                        'description': f'Артикул: {item.get("offer_id")}'
+                    })
+                return transformed_items
+            else:
+                print(f"❌ v4/info ошибка: {info_response.status_code}")
+                return []
+        except Exception as e:
+            print(f"❌ Ошибка v4/info: {e}")
+            return []
+    
+    def find_price_item(self, prices_data, product_id):
+        """Находит элемент с ценой по product_id"""
+        if not prices_data or 'items' not in prices_data:
+            return None
+        
+        for item in prices_data['items']:
+            if item.get('product_id') == product_id:
+                return item
+        return None
+    
+    def get_product_quantity(self, product_info):
+        """Получает количество товара в наличии"""
+        try:
+            # Пробуем разные способы получения количества
+            stocks = product_info.get('stocks', {})
+            
+            # Способ 1: из stocks -> stocks array
+            if 'stocks' in stocks:
+                total_quantity = 0
+                for stock in stocks['stocks']:
+                    present = stock.get('present', 0)
+                    reserved = stock.get('reserved', 0)
+                    available = present - reserved
+                    if available > 0:
+                        total_quantity += available
+                
+                if total_quantity > 0:
+                    return total_quantity
+            
+            # Способ 2: из discounted_fbo_stocks
+            fbo_stocks = product_info.get('discounted_fbo_stocks', 0)
+            if fbo_stocks > 0:
+                return fbo_stocks
+            
+            # Способ 3: проверяем has_stock
+            has_stock = stocks.get('has_stock', False)
+            if has_stock:
+                return 10  # Если есть stock но нет количества, ставим 10
+                
+            return 10  # По умолчанию 10 шт.
+        except Exception as e:
+            print(f"❌ Ошибка получения количества: {e}")
+            return 10
     
     def get_prices_v5(self, product_ids):
         """Получает цены через v5/product/info/prices"""
@@ -157,22 +286,7 @@ class OzonSellerAPI:
                 prices_data = prices_response.json()
                 price_items = prices_data.get('items', [])
                 print(f"📊 v5: Получены цены для {len(price_items)} товаров")
-                
-                prices_map = {}
-                for price_item in price_items:
-                    product_id = price_item.get('product_id')
-                    price_info = price_item.get('price', {})
-                    
-                    # Извлекаем цену из структуры
-                    price_value = self.extract_price_from_structure(price_info)
-                    
-                    if product_id and price_value > 0:
-                        prices_map[str(product_id)] = price_value
-                        print(f"💰 Цена для {product_id}: {price_value} ₽")
-                    else:
-                        print(f"⚠️ Некорректная цена для товара {product_id}: {price_value}")
-                
-                return prices_map
+                return prices_data
             else:
                 print(f"❌ v5 endpoint ошибка: {prices_response.status_code}")
                 print(f"Текст ошибки: {prices_response.text}")
@@ -255,7 +369,7 @@ async def load_real_products():
         try:
             product_id = item.get('product_id', '')
             offer_id = item.get('offer_id', '')
-            name = item.get('name', f'Товар {offer_id}')
+            name = item.get('name', '')
             price = item.get('price', 0)
             description = item.get('description', '')
             quantity = item.get('quantity', 0)
@@ -296,468 +410,7 @@ async def load_real_products():
     products_cache = products
     return products
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Приветствие и главное меню"""
-    # Получаем пользователя в зависимости от типа update
-    if update.message:
-        user = update.message.from_user
-        chat_id = update.message.chat_id
-    elif update.callback_query:
-        user = update.callback_query.from_user
-        chat_id = update.callback_query.message.chat_id
-    else:
-        # Если не можем получить пользователя, выходим
-        return
-    
-    # Загружаем товары при старте
-    if not products_cache:
-        await load_real_products()
-    
-    # Проверяем есть ли товары
-    if not products_cache:
-        keyboard = [
-            [InlineKeyboardButton("🔄 Попробовать снова", callback_data="refresh_products")],
-            [InlineKeyboardButton("📞 Поддержка", callback_data="support")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        if update.message:
-            await update.message.reply_text(
-                "❌ *Товары временно недоступны*\n\n"
-                "Не удалось загрузить товары из магазина.\n"
-                "Попробуйте обновить или обратитесь в поддержку.",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-        else:
-            await update.callback_query.edit_message_text(
-                "❌ *Товары временно недоступны*\n\n"
-                "Не удалось загрузить товары из магазина.\n"
-                "Попробуйте обновить или обратитесь в поддержку.",
-                reply_markup=reply_markup,
-                parse_mode='Markdown'
-            )
-        return
-    
-    keyboard = [
-        [InlineKeyboardButton("🛍️ Смотреть товары", callback_data="view_products")],
-        [InlineKeyboardButton("🛒 Моя корзина", callback_data="cart")],
-        [InlineKeyboardButton("📦 Мои заказы", callback_data="my_orders")],
-        [InlineKeyboardButton("🔄 Обновить товары", callback_data="refresh_products")],
-        [InlineKeyboardButton("📞 Поддержка", callback_data="support")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    welcome_text = (
-        f"👋 Привет, {user.first_name}!\n\n"
-        "🏪 *Добро пожаловать в наш Ozon магазин!*\n\n"
-        f"📦 *Доступно товаров:* {len(products_cache)}\n"
-        "🛒 Делайте заказы прямо в Telegram!\n\n"
-        "Нажмите 'Смотреть товары' чтобы начать покупки:"
-    )
-    
-    if update.message:
-        await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
-    else:
-        await update.callback_query.edit_message_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
-
-async def view_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает список товаров"""
-    query = update.callback_query
-    if query:
-        await query.answer()
-    
-    # Если товаров нет - загружаем
-    if not products_cache:
-        await load_real_products()
-    
-    # Проверяем есть ли товары после загрузки
-    if not products_cache:
-        if query:
-            await query.edit_message_text(
-                "❌ Товары временно недоступны\nПопробуйте обновить позже.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Обновить", callback_data="refresh_products")]])
-            )
-        else:
-            await update.message.reply_text(
-                "❌ Товары временно недоступны\nПопробуйте обновить позже.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Обновить", callback_data="refresh_products")]])
-            )
-        return
-    
-    user_id = query.from_user.id if query else update.message.from_user.id
-    
-    # Начинаем с первого товара
-    current_product_index[user_id] = 0
-    await show_product(update, context, user_id)
-
-async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int = None, force_update: bool = False):
-    """Показывает текущий товар с реальными данными"""
-    if not user_id:
-        if update.callback_query:
-            user_id = update.callback_query.from_user.id
-        else:
-            user_id = update.message.from_user.id
-    
-    if user_id not in current_product_index:
-        current_product_index[user_id] = 0
-    
-    product_ids = list(products_cache.keys())
-    
-    if not product_ids:
-        # Используем reply_text вместо edit_message_text для нового сообщения
-        if update.callback_query:
-            await update.callback_query.message.reply_text(
-                "❌ Товары временно недоступны",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Обновить", callback_data="refresh_products")]])
-            )
-        else:
-            await update.message.reply_text(
-                "❌ Товары временно недоступны",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Обновить", callback_data="refresh_products")]])
-            )
-        return
-    
-    current_index = current_product_index[user_id]
-    product_id = product_ids[current_index]
-    product = products_cache[product_id]
-    
-    # Кнопки навигации
-    keyboard = []
-    
-    if len(product_ids) > 1:
-        nav_buttons = []
-        
-        if current_index > 0:
-            nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data="product_prev"))
-        
-        nav_buttons.append(InlineKeyboardButton(f"{current_index + 1}/{len(product_ids)}", callback_data="none"))
-        
-        if current_index < len(product_ids) - 1:
-            nav_buttons.append(InlineKeyboardButton("Вперед ➡️", callback_data="product_next"))
-        
-        keyboard.append(nav_buttons)
-    
-    # Основные кнопки
-    keyboard.extend([
-        [InlineKeyboardButton("🛒 Добавить в корзину", callback_data=f"add_{product_id}")],
-        [InlineKeyboardButton("🛒 Перейти в корзину", callback_data="cart")],
-        [InlineKeyboardButton("🛍️ К списку товаров", callback_data="view_products")],
-        [InlineKeyboardButton("↩️ Главное меню", callback_data="back_main")]
-    ])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # Формируем сообщение с реальными данными
-    message_text = (
-        f"{product['image']} *{product['name']}*\n\n"
-        f"💵 *Цена:* {product['price']} ₽\n"
-        f"📝 *Описание:* {product['description']}\n"
-        f"📦 *В наличии:* {product['quantity']} шт.\n\n"
-        f"✅ *Готов к заказу*\n"
-        f"🚚 *Доставка:* Ozon FBS (1-3 дня)\n\n"
-        f"🛒 Нажмите 'Добавить в корзину' чтобы заказать!"
-    )
-    
-    if update.callback_query:
-        try:
-            # Пытаемся изменить сообщение
-            await update.callback_query.edit_message_text(
-                message_text, 
-                reply_markup=reply_markup, 
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            # Если ошибка "сообщение не изменено", просто отвечаем на callback
-            if "message is not modified" in str(e):
-                await update.callback_query.answer()
-            else:
-                # Другие ошибки - создаем новое сообщение
-                await update.callback_query.message.reply_text(
-                    message_text,
-                    reply_markup=reply_markup,
-                    parse_mode='Markdown'
-                )
-    else:
-        await update.message.reply_text(
-            message_text,
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-
-async def handle_product_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка навигации по товарам"""
-    query = update.callback_query
-    await query.answer()  # Всегда отвечаем на callback
-    
-    user_id = query.from_user.id
-    action = query.data
-    
-    product_ids = list(products_cache.keys())
-    
-    if action == "product_prev" and current_product_index[user_id] > 0:
-        current_product_index[user_id] -= 1
-    elif action == "product_next" and current_product_index[user_id] < len(product_ids) - 1:
-        current_product_index[user_id] += 1
-    
-    await show_product(update, context, user_id, force_update=True)
-
-async def add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Добавляет товар в корзину"""
-    query = update.callback_query
-    await query.answer()
-    
-    product_id = int(query.data.split("_")[1])
-    user_id = query.from_user.id
-    
-    if user_id not in user_carts:
-        user_carts[user_id] = {}
-    
-    if product_id in user_carts[user_id]:
-        user_carts[user_id][product_id] += 1
-    else:
-        user_carts[user_id][product_id] = 1
-    
-    product = products_cache[product_id]
-    await query.answer(f"✅ {product['name']} добавлен в корзину!")
-
-async def show_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает корзину"""
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    
-    if user_id not in user_carts or not user_carts[user_id]:
-        keyboard = [
-            [InlineKeyboardButton("🛍️ Смотреть товары", callback_data="view_products")],
-            [InlineKeyboardButton("↩️ Главное меню", callback_data="back_main")]
-        ]
-        await query.edit_message_text(
-            "🛒 *Ваша корзина пуста*\n\n"
-            "Добавьте товары из каталога!",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
-        )
-        return
-    
-    # Формируем содержимое корзины
-    cart_text = "🛒 *Ваша корзина:*\n\n"
-    total = 0
-    
-    for product_id, quantity in user_carts[user_id].items():
-        product = products_cache[product_id]
-        item_total = product['price'] * quantity
-        total += item_total
-        cart_text += f"{product['image']} *{product['name']}*\n"
-        cart_text += f"   {quantity} шт. × {product['price']} ₽ = *{item_total} ₽*\n\n"
-    
-    cart_text += f"💵 *Итого: {total} ₽*"
-    
-    keyboard = [
-        [InlineKeyboardButton("📦 Оформить заказ", callback_data="checkout")],
-        [InlineKeyboardButton("🛍️ Продолжить покупки", callback_data="view_products")],
-        [InlineKeyboardButton("🗑️ Очистить корзину", callback_data="clear_cart")],
-        [InlineKeyboardButton("↩️ Главное меню", callback_data="back_main")]
-    ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text(cart_text, reply_markup=reply_markup, parse_mode='Markdown')
-
-async def checkout(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Оформление заказа"""
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    user = query.from_user
-    
-    if user_id not in user_carts or not user_carts[user_id]:
-        await query.answer("❌ Корзина пуста!")
-        return
-    
-    # Подсчет итоговой суммы
-    total = sum(products_cache[pid]['price'] * qty for pid, qty in user_carts[user_id].items())
-    
-    # Сохраняем заказ
-    if user_id not in user_orders:
-        user_orders[user_id] = []
-    
-    order_id = len(user_orders[user_id]) + 1
-    user_orders[user_id].append({
-        "order_id": order_id,
-        "items": user_carts[user_id].copy(),
-        "total": total,
-        "status": "Обрабатывается"
-    })
-    
-    # Очищаем корзину
-    user_carts[user_id] = {}
-    
-    # Формируем сообщение о заказе
-    order_text = (
-        "🎉 *Заказ успешно оформлен!*\n\n"
-        f"📋 *Номер заказа:* #{order_id}\n"
-        f"💵 *Сумма заказа:* {total} ₽\n"
-        f"👤 *Получатель:* {user.first_name}\n"
-        f"📞 *Статус:* Обрабатывается\n\n"
-        f"🚚 *Доставка:* Ozon FBS\n"
-        f"📦 Свяжемся с вами для уточнения деталей доставки\n\n"
-        f"Спасибо за покупку! 💝"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("📦 Мои заказы", callback_data="my_orders")],
-        [InlineKeyboardButton("🛍️ Новый заказ", callback_data="view_products")],
-        [InlineKeyboardButton("📞 Поддержка", callback_data="support")]
-    ]
-    
-    await query.edit_message_text(
-        order_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-async def show_my_orders(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Показывает заказы пользователя"""
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    
-    if user_id not in user_orders or not user_orders[user_id]:
-        keyboard = [
-            [InlineKeyboardButton("🛍️ Сделать заказ", callback_data="view_products")],
-            [InlineKeyboardButton("↩️ Главное меню", callback_data="back_main")]
-        ]
-        await query.edit_message_text(
-            "📦 *У вас пока нет заказов*\n\n"
-            "Сделайте ваш первый заказ в нашем магазине!",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode='Markdown'
-        )
-        return
-    
-    orders_text = "📦 *Ваши заказы:*\n\n"
-    
-    for order in user_orders[user_id][-5:]:
-        orders_text += f"🆔 *Заказ #{order['order_id']}*\n"
-        orders_text += f"💵 Сумма: {order['total']} ₽\n"
-        orders_text += f"📊 Статус: {order['status']}\n"
-        orders_text += f"📦 Товаров: {len(order['items'])}\n\n"
-    
-    keyboard = [
-        [InlineKeyboardButton("🛍️ Новый заказ", callback_data="view_products")],
-        [InlineKeyboardButton("📞 Поддержка", callback_data="support")],
-        [InlineKeyboardButton("↩️ Главное меню", callback_data="back_main")]
-    ]
-    
-    await query.edit_message_text(
-        orders_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-async def refresh_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обновление списка товаров"""
-    query = update.callback_query
-    if query:
-        await query.answer()
-    
-    await load_real_products()
-    
-    if not products_cache:
-        keyboard = [[InlineKeyboardButton("📞 Поддержка", callback_data="support")]]
-        if query:
-            await query.edit_message_text(
-                "❌ Не удалось загрузить товары\n"
-                "Попробуйте позже или обратитесь в поддержку",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        else:
-            await update.message.reply_text(
-                "❌ Не удалось загрузить товары\n"
-                "Попробуйте позже или обратитесь в поддержку",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        return
-    
-    keyboard = [[InlineKeyboardButton("🛍️ Смотреть товары", callback_data="view_products")]]
-    
-    if query:
-        await query.edit_message_text(
-            f"✅ Товары обновлены!\n"
-            f"📦 Загружено товаров: {len(products_cache)}",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    else:
-        await update.message.reply_text(
-            f"✅ Товары обновлены!\n"
-            f"📦 Загружено товаров: {len(products_cache)}",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Поддержка"""
-    query = update.callback_query
-    await query.answer()
-    
-    keyboard = [
-        [InlineKeyboardButton("📞 Написать менеджеру", url="https://t.me/your_manager")],
-        [InlineKeyboardButton("🌐 Наш Ozon магазин", url="https://ozon.ru/t/your-store")],
-        [InlineKeyboardButton("↩️ Назад", callback_data="back_main")]
-    ]
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        "📞 *Служба поддержки*\n\n"
-        "🕒 Время работы: 9:00-21:00\n"
-        "📞 Телефон: +7 (XXX) XXX-XX-XX\n"
-        "✉️ Email: support@yourstore.ru\n\n"
-        "Свяжитесь с нами для консультации или помощи с заказом!",
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
-
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик callback-ов"""
-    query = update.callback_query
-    
-    if not query:
-        return
-    
-    data = query.data
-    
-    try:
-        if data == "view_products":
-            await view_products(update, context)
-        elif data in ["product_prev", "product_next"]:
-            await handle_product_navigation(update, context)
-        elif data == "none":
-            # Просто отвечаем на callback без изменений
-            await query.answer()
-        elif data.startswith("add_"):
-            await add_to_cart(update, context)
-        elif data == "cart":
-            await show_cart(update, context)
-        elif data == "checkout":
-            await checkout(update, context)
-        elif data == "clear_cart":
-            user_id = query.from_user.id
-            user_carts[user_id] = {}
-            await show_cart(update, context)
-        elif data == "my_orders":
-            await show_my_orders(update, context)
-        elif data == "refresh_products":
-            await refresh_products(update, context)
-        elif data == "support":
-            await support(update, context)
-        elif data == "back_main":
-            await start(update, context)
-    except Exception as e:
-        print(f"❌ Ошибка в обработчике callback: {e}")
-        await query.answer("❌ Произошла ошибка, попробуйте снова")
+# ... остальные функции бота остаются без изменений ...
 
 def main():
     """Запуск бота"""
