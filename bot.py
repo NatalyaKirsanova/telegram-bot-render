@@ -633,18 +633,25 @@ async def checkout(query, context):
     """Оформляет заказ"""
     user_id = query.from_user.id
     
+    print(f"🔍 Проверяем корзину пользователя {user_id}: {user_carts.get(user_id)}")
+    
     if user_id not in user_carts or not user_carts[user_id]:
         await query.answer("❌ Корзина пуста", show_alert=True)
         return
     
-    cart = user_carts[user_id]
+    cart = user_carts[user_id].copy()  # Делаем копию корзины
     total = 0
     items_count = 0
     
-    for idx, qty in cart.items():
-        if products_cache.get(idx):
-            total += products_cache[idx]['price'] * qty
-            items_count += qty
+    # Считаем сумму и количество
+    for product_index, quantity in cart.items():
+        product = products_cache.get(product_index)
+        if product:
+            total += product['price'] * quantity
+            items_count += quantity
+            print(f"📦 Товар {product_index}: {quantity} × {product['price']} ₽")
+    
+    print(f"💰 Итого: {total} ₽, товаров: {items_count} шт.")
     
     # Сохраняем заказ
     if user_id not in user_orders:
@@ -653,17 +660,63 @@ async def checkout(query, context):
     user_orders[user_id].append({
         'total': total,
         'items_count': items_count,
-        'date': datetime.datetime.now().strftime("%H:%M %d.%m.%Y")
+        'date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     })
     
-    # Очищаем корзину
+    # ОЧИЩАЕМ КОРЗИНУ
     user_carts[user_id] = {}
+    print(f"🗑️ Корзина очищена: {user_carts.get(user_id)}")
     
-    await query.edit_message_text(f"✅ Заказ оформлен!\n💰 Сумма: {total} ₽\n📦 Товаров: {items_count} шт.")
+    await query.edit_message_text(
+        f"✅ *Заказ оформлен!*\n\n"
+        f"💰 Сумма: {total} ₽\n"
+        f"📦 Товаров: {items_count} шт.\n"
+        f"📅 Дата: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+        f"Спасибо за покупку! 🎉",
+        parse_mode='Markdown'
+    )
+
+async def show_cart(query, context):
+    """Показывает корзину пользователя"""
+    user_id = query.from_user.id
+    
+    print(f"🔍 Показываем корзину пользователя {user_id}: {user_carts.get(user_id)}")
+    
+    if user_id not in user_carts or not user_carts[user_id]:
+        await query.edit_message_text("🛒 Ваша корзина пуста")
+        return
+    
+    cart = user_carts[user_id]
+    total = 0
+    cart_text = "🛒 *Ваша корзина:*\n\n"
+    
+    for product_index, quantity in cart.items():
+        product = products_cache.get(product_index)
+        if product:
+            item_total = product['price'] * quantity
+            total += item_total
+            cart_text += f"• {product['name']}\n  {quantity} × {product['price']} ₽ = {item_total} ₽\n"
+    
+    cart_text += f"\n💵 *Итого:* {total} ₽"
+    
+    keyboard = [
+        [InlineKeyboardButton("💰 Оформить заказ", callback_data="checkout")],
+        [InlineKeyboardButton("🛍️ Продолжить покупки", callback_data="view_products"),
+         InlineKeyboardButton("🗑️ Очистить корзину", callback_data="clear_cart")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(cart_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+
+
+
 async def clear_cart(query, context):
     """Очищает корзину"""
     user_id = query.from_user.id
+    print(f"🗑️ Очищаем корзину пользователя {user_id}")
     user_carts[user_id] = {}
+    print(f"✅ Корзина очищена: {user_carts.get(user_id)}")
     await query.edit_message_text("🗑️ Корзина очищена")
 
 async def preload_products():
