@@ -496,7 +496,12 @@ async def show_product_detail(query, context, product_index):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await query.edit_message_text(product_text, reply_markup=reply_markup, parse_mode='Markdown')
+    try:
+        await query.edit_message_text(product_text, reply_markup=reply_markup, parse_mode='Markdown')
+    except Exception as e:
+        # Игнорируем ошибку "Message is not modified"
+        if "Message is not modified" not in str(e):
+            raise e
 
 async def handle_product_action(query, context, callback_data):
     """Обрабатывает действия с товарами"""
