@@ -721,20 +721,21 @@ async def checkout(query, context):
 
 async def show_cart(query, context):
     """Показывает корзину пользователя"""
-    user_id = query.from_user.id
+    # Получаем корзину из user_data
+    cart = context.user_data.get('cart', {})
     
+    # УДАЛИТЬ эту строку:
+    # print(f"🔍 Показываем корзину пользователя {user_id}: {user_carts.get(user_id)}")
     
-    
-    if user_id not in user_carts or not user_carts[user_id]:
+    if not cart:
         await query.edit_message_text("🛒 Ваша корзина пуста")
         return
     
-    cart = user_carts[user_id]
     total = 0
     cart_text = "🛒 *Ваша корзина:*\n\n"
     
     for product_index, quantity in cart.items():
-        product = products_cache.get(product_index)
+        product = products_cache.get(int(product_index))
         if product:
             item_total = product['price'] * quantity
             total += item_total
