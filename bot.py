@@ -251,10 +251,16 @@ async def view_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Проверяем есть ли товары после загрузки
     if not products_cache:
-        await query.edit_message_text(
-            "❌ Товары временно недоступны\nПопробуйте обновить позже.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Обновить", callback_data="refresh_products")]])
-        )
+        if query:
+            await query.edit_message_text(
+                "❌ Товары временно недоступны\nПопробуйте обновить позже.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Обновить", callback_data="refresh_products")]])
+            )
+        else:
+            await update.message.reply_text(
+                "❌ Товары временно недоступны\nПопробуйте обновить позже.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Обновить", callback_data="refresh_products")]])
+            )
         return
     
     user_id = query.from_user.id if query else update.message.from_user.id
@@ -263,7 +269,7 @@ async def view_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_product_index[user_id] = 0
     await show_product(update, context, user_id)
 
-async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int = None):
+async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int = None, force_update: bool = False):
     """Показывает текущий товар"""
     if not user_id:
         if update.callback_query:
@@ -277,10 +283,17 @@ async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, user_
     product_ids = list(products_cache.keys())
     
     if not product_ids:
-        await update.callback_query.edit_message_text(
-            "❌ Товары временно недоступны",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Обновить", callback_data="refresh_products")]])
-        )
+        # Используем reply_text вместо edit_message_text для нового сообщения
+        if update.callback_query:
+            await update.callback_query.message.reply_text(
+                "❌ Товары временно недоступны",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Обновить", callback_data="refresh_products")]])
+            )
+        else:
+            await update.message.reply_text(
+                "❌ Товары временно недоступны",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔄 Обновить", callback_data="refresh_products")]])
+            )
         return
     
     current_index = current_product_index[user_id]
@@ -323,14 +336,35 @@ async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, user_
     )
     
     if update.callback_query:
-        await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup, parse_mode='Markdown')
+        try:
+            # Пытаемся изменить сообщение
+            await update.callback_query.edit_message_text(
+                message_text, 
+                reply_markup=reply_markup, 
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            # Если ошибка "сообщение не изменено", просто отвечаем на callback
+            if "message is not modified" in str(e):
+                await update.callback_query.answer()
+            else:
+                # Другие ошибки - создаем новое сообщение
+                await update.callback_query.message.reply_text(
+                    message_text,
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
     else:
-        await update.message.reply_text(message_text, reply_markup=reply_markup, parse_mode='Markdown')
+        await update.message.reply_text(
+            message_text,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
 
 async def handle_product_navigation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка навигации по товарам"""
     query = update.callback_query
-    await query.answer()
+    await query.answer()  # Всегда отвечаем на callback
     
     user_id = query.from_user.id
     action = query.data
@@ -342,7 +376,7 @@ async def handle_product_navigation(update: Update, context: ContextTypes.DEFAUL
     elif action == "product_next" and current_product_index[user_id] < len(product_ids) - 1:
         current_product_index[user_id] += 1
     
-    await show_product(update, context, user_id)
+    await show_product(update, context, user_id, force_update=True)
 
 async def add_to_cart(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Добавляет товар в корзину"""
@@ -556,6 +590,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await view_products(update, context)
     elif data in ["product_prev", "product_next"]:
         await handle_product_navigation(update, context)
+    elif data == "none":
+        # Просто отвечаем на callback без изменений
+        await query.answer()
     elif data.startswith("add_"):
         await add_to_cart(update, context)
     elif data == "cart":
