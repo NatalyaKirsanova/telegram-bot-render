@@ -24,19 +24,19 @@ class OzonSellerAPI:
     
     def get_products_with_prices(self, limit=20):
         """Получает товары с реальными ценами и названиями"""
-        print("🔄 Получение товаров через v3/product/list...")
+        print("🔄 Получение товаров через v3/product/info/list...")
         
         try:
-            # Получаем список товаров через v3/product/list
+            # Получаем список товаров через v3/product/info/llist
             products_response = requests.post(
-                "https://api-seller.ozon.ru/v3/product/list",
+                "https://api-seller.ozon.ru/v3/product/info/llist",
                 headers=self.headers,
                 json={"filter": {}, "limit": limit, "sort_dir": "ASC"},
                 timeout=10
             )
             
             if products_response.status_code != 200:
-                print(f"❌ Ошибка v3/product/list: {products_response.status_code}")
+                print(f"❌ Ошибка v3/product/info/llist: {products_response.status_code}")
                 print(f"Текст ошибки: {products_response.text}")
                 return None
             
