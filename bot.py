@@ -155,45 +155,84 @@ class OzonSellerAPI:
             print(f"❌ Ошибка получения описаний: {e}")
             return {}
     
-    def _get_products_prices_v5(self, product_ids):
-        """Получает цены товаров через v5/product/info/prices"""
-        prices_data = {}
-        try:
-            # Разбиваем на группы по 50 product_id
-            for i in range(0, len(product_ids), 50):
-                batch_ids = product_ids[i:i+50]
-                
-                prices_response = requests.post(
-                    "https://api-seller.ozon.ru/v5/product/info/prices",
-                    headers=self.headers,
-                    json={
-                        "filter": {
-                            "product_id": batch_ids,
-                            "visibility": "ALL"
-                        },
-                        "last_id": "",
-                        "limit": 1000
+   def _get_products_prices_v5(self, product_ids):
+    """Получает цены товаров через v5/product/info/prices"""
+    prices_data = {}
+    try:
+        # Разбиваем на группы по 50 product_id
+        for i in range(0, len(product_ids), 50):
+            batch_ids = product_ids[i:i+50]
+            
+            prices_response = requests.post(
+                "https://api-seller.ozon.ru/v5/product/info/prices",
+                headers=self.headers,
+                json={
+                    "filter": {
+                        "product_id": batch_ids,
+                        "visibility": "ALL"
                     },
-                    timeout=10
-                )
+                    "last_id": "",
+                    "limit": 1000
+                },
+                timeout=10
+            )
+            
+            if prices_response.status_code == 200:
+                prices_result = prices_response.json()
+                price_items = prices_result.get('result', {}).get('items', [])
+                print(f"💰 Получены цены для {len(price_items)} товаров")
                 
-                if prices_response.status_code == 200:
-                    prices_result = prices_response.json()
-                    price_items = prices_result.get('result', {}).get('items', [])
-                    print(f"💰 Получены цены для {len(price_items)} товаров")
+                for price_item in price_items:
+                    product_id = price_item.get('product_id')
+                    prices_data[product_id] = price_item
                     
-                    for price_item in price_items:
-                        product_id = price_item.get('product_id')
-                        prices_data[product_id] = price_item
-                else:
-                    print(f"❌ Ошибка получения цен v5: {prices_response.status_code}")
-                    print(f"Текст ошибки: {prices_response.text}")
-            
-            return prices_data
-            
-        except Exception as e:
-            print(f"❌ Ошибка получения цен v5: {e}")
-            return {}
+                    # Выводим всю структуру для анализа
+                    print(f"🔍 Полная структура цены для {product_id}:")
+                    import json
+                    print(json.dumps(price_item, indent=2, ensure_ascii=False))
+                    
+            else:
+                print(f"❌ Ошибка получения цен v5: {prices_response.status_code}")
+                print(f"Текст ошибки: {prices_response.text}")
+        
+        return prices_data
+        
+    except Exception as e:
+        print(f"❌ Ошибка получения цен v5: {e}")
+        return {}
+
+def _extract_price_from_v5(self, price_item):
+    """Извлекает цену из структуры Ozon v5"""
+    if not price_item:
+        return 0
+    
+    # Пробуем все возможные пути к цене
+    price_paths = [
+        # Основной путь через price объект
+        lambda: price_item.get('price', {}).get('price'),
+        lambda: price_item.get('price', {}).get('marketing_price'),
+        lambda: price_item.get('price', {}).get('old_price'),
+        lambda: price_item.get('price', {}).get('min_price'),
+        # Прямые поля
+        lambda: price_item.get('marketing_price'),
+        lambda: price_item.get('old_price'),
+        lambda: price_item.get('min_price'),
+        lambda: price_item.get('price'),
+    ]
+    
+    for price_func in price_paths:
+        try:
+            price_value = price_func()
+            if price_value and str(price_value).replace('.', '').isdigit():
+                price_int = int(float(price_value))
+                if price_int > 0:
+                    print(f"✅ Найдена цена: {price_int} ₽")
+                    return price_int
+        except:
+            continue
+    
+    print(f"❌ Цена не найдена в структуре")
+    return 0
     
     def _get_products_stocks(self, product_ids):
         """Получает остатки товаров через v3/product/info/stocks"""
