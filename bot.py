@@ -525,8 +525,6 @@ async def handle_product_action(query, context, callback_data):
 
 async def add_to_cart(query, context, product_index):
     """Добавляет товар в корзину"""
-    user_id = query.from_user.id
-    
     # Инициализируем корзину в user_data
     if 'cart' not in context.user_data:
         context.user_data['cart'] = {}
@@ -538,10 +536,10 @@ async def add_to_cart(query, context, product_index):
         await query.answer("❌ Товар не найден", show_alert=True)
         return
     
-    if product_index in cart:
-        cart[product_index] += 1
+    if str(product_index) in cart:
+        cart[str(product_index)] += 1
     else:
-        cart[product_index] = 1
+        cart[str(product_index)] = 1
     
     product_name = product['name']
     if len(product_name) > 100:
@@ -562,7 +560,7 @@ async def show_cart(query, context):
     cart_text = "🛒 *Ваша корзина:*\n\n"
     
     for product_index, quantity in cart.items():
-        product = products_cache.get(product_index)
+        product = products_cache.get(int(product_index))
         if product:
             item_total = product['price'] * quantity
             total += item_total
@@ -592,7 +590,7 @@ async def checkout(query, context):
     items_count = 0
     
     for product_index, quantity in cart.items():
-        product = products_cache.get(product_index)
+        product = products_cache.get(int(product_index))
         if product:
             total += product['price'] * quantity
             items_count += quantity
@@ -649,7 +647,6 @@ async def show_orders(query, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(orders_text, reply_markup=reply_markup, parse_mode='Markdown')
-    
 
 async def refresh_products_callback(query, context):
     """Обновляет товары через callback"""
