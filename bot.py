@@ -66,7 +66,7 @@ class OzonSellerAPI:
             prices_data = self._get_products_prices_v5(product_ids)
         
             # 4. Получаем остатки через оба метода
-            print("🔍 Получаем остатки через v1/product/info/warehouse/stocks...")
+            print("🔍 Получаем остатки через v1/product/info/stocks-by-warehouse/fbs...")
             stocks_data_v1 = self._get_products_stocks(product_ids)
         
             print("🔍 Получаем остатки через v2/products/stocks...")
@@ -87,7 +87,7 @@ class OzonSellerAPI:
                     name = description_info.get('name', offer_id or f"Товар {product_id}")
                     description = description_info.get('description', '')
                 
-                        # Если нет описания из v1, используем базовое
+                    # Если нет описания из v1, используем базовое
                     if not description:
                         description = f"Артикул: {offer_id}" if offer_id else f"ID: {product_id}"
                 
@@ -250,7 +250,7 @@ class OzonSellerAPI:
         """Получает остатки товаров через v1/product/info/stocks-by-warehouse/fbs"""
         stocks_data = {}
         try:
-                # Для этого endpoint нужно использовать offer_id вместо product_id
+            # Для этого endpoint нужно использовать offer_id вместо product_id
             # Сначала получим offer_id для наших product_ids
             offer_ids = []
             for product_id in product_ids:
@@ -373,64 +373,75 @@ class OzonSellerAPI:
         except Exception as e:
             print(f"❌ Ошибка получения остатков v2: {e}")
             return {}
-        def _extract_quantity(self, stock_item):
-            """Извлекает количество из структуры остатков v1/product/info/warehouse/stocks"""
-            try:
-                if not stock_item:
-                    print("⚠️ Нет данных об остатках, используем значение по умолчанию: 10")
-                    return 10  # По умолчанию
-        
-                print(f"🔍 Анализируем структуру остатков: {stock_item}")
-        
-                # Способ 1: free_stock - самый надежный показатель (доступно к продаже)
-                if 'free_stock' in stock_item:
-                    free_stock = stock_item['free_stock']
-                    if free_stock is not None:
-                        try:
-                            free_stock_int = int(free_stock)
-                            print(f"📊 free_stock: {free_stock_int}")
-                            if free_stock_int >= 0:
-                                print(f"✅ Количество из поля 'free_stock': {free_stock_int}")
-                                return free_stock_int
-                            else:
-                                print(f"⚠️ Отрицательное free_stock: {free_stock_int}, используем 0")
-                                return 0
-                        except (ValueError, TypeError) as e:
-                            print(f"⚠️ Ошибка преобразования free_stock: {e}")
-        
-                # Способ 2: present - reserved (физически на складе минус зарезервировано)
-                if 'present' in stock_item and 'reserved' in stock_item:
-                    present = stock_item.get('present', 0)
-                    reserved = stock_item.get('reserved', 0)
-                    available = max(0, present - reserved)
-                    print(f"📊 present: {present}, reserved: {reserved}, available: {available}")
-                    if available >= 0:
-                        print(f"✅ Количество из present({present}) - reserved({reserved}) = {available}")
-                        return available
-        
-                # Способ 3: только present (физически на складе)
-                if 'present' in stock_item:
-                    present = stock_item['present']
-                    if present is not None:
-                        try:
-                            present_int = int(present)
-                            print(f"📊 present: {present_int}")
-                            if present_int >= 0:
-                                print(f"✅ Количество из поля 'present': {present_int}")
-                                return present_int
-                        except (ValueError, TypeError) as e:
-                            print(f"⚠️ Ошибка преобразования present: {e}")
-        
-                print("⚠️ Не удалось определить количество, используем значение по умолчанию: 10")
+
+    def _extract_quantity(self, stock_item):
+        """Извлекает количество из структуры остатков"""
+        try:
+            if not stock_item:
+                print("⚠️ Нет данных об остатках, используем значение по умолчанию: 10")
                 return 10  # По умолчанию
         
-            except Exception as e:
-                print(f"❌ Ошибка извлечения количества: {e}")
-                print(f"📋 Структура stock_item: {stock_item}")
-                return 10
-    
-    
-    
+            print(f"🔍 Анализируем структуру остатков: {stock_item}")
+        
+            # Способ 1: free_stock - самый надежный показатель (доступно к продаже)
+            if 'free_stock' in stock_item:
+                free_stock = stock_item['free_stock']
+                if free_stock is not None:
+                    try:
+                        free_stock_int = int(free_stock)
+                        print(f"📊 free_stock: {free_stock_int}")
+                        if free_stock_int >= 0:
+                            print(f"✅ Количество из поля 'free_stock': {free_stock_int}")
+                            return free_stock_int
+                        else:
+                            print(f"⚠️ Отрицательное free_stock: {free_stock_int}, используем 0")
+                            return 0
+                    except (ValueError, TypeError) as e:
+                        print(f"⚠️ Ошибка преобразования free_stock: {e}")
+        
+            # Способ 2: present - reserved (физически на складе минус зарезервировано)
+            if 'present' in stock_item and 'reserved' in stock_item:
+                present = stock_item.get('present', 0)
+                reserved = stock_item.get('reserved', 0)
+                available = max(0, present - reserved)
+                print(f"📊 present: {present}, reserved: {reserved}, available: {available}")
+                if available >= 0:
+                    print(f"✅ Количество из present({present}) - reserved({reserved}) = {available}")
+                    return available
+        
+            # Способ 3: поле stock из простого метода
+            if 'stock' in stock_item:
+                stock = stock_item['stock']
+                if stock is not None:
+                    try:
+                        stock_int = int(stock)
+                        print(f"📊 stock: {stock_int}")
+                        if stock_int >= 0:
+                            print(f"✅ Количество из поля 'stock': {stock_int}")
+                            return stock_int
+                    except (ValueError, TypeError) as e:
+                        print(f"⚠️ Ошибка преобразования stock: {e}")
+        
+            # Способ 4: только present (физически на складе)
+            if 'present' in stock_item:
+                present = stock_item['present']
+                if present is not None:
+                    try:
+                        present_int = int(present)
+                        print(f"📊 present: {present_int}")
+                        if present_int >= 0:
+                            print(f"✅ Количество из поля 'present': {present_int}")
+                            return present_int
+                    except (ValueError, TypeError) as e:
+                        print(f"⚠️ Ошибка преобразования present: {e}")
+        
+            print("⚠️ Не удалось определить количество, используем значение по умолчанию: 10")
+            return 10  # По умолчанию
+        
+        except Exception as e:
+            print(f"❌ Ошибка извлечения количества: {e}")
+            print(f"📋 Структура stock_item: {stock_item}")
+            return 10
     
     def _clean_description(self, description):
         """Очищает описание от HTML тегов"""
