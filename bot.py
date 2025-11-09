@@ -226,96 +226,94 @@ class OzonSellerAPI:
         
         except Exception as e:
             print(f"❌ Ошибка извлечения цены: {e}")
-            return 0
-    
-    
+            return 0 
     
     
     
     def _get_products_stocks(self, product_ids):
-    """Получает остатки товаров через v4/products/stocks"""
-    stocks_data = {}
-    try:
-        # Разбиваем на группы по 100 product_id (лимит для v4/products/stocks)
-        for i in range(0, len(product_ids), 100):
-            batch_ids = product_ids[i:i+100]
+        """Получает остатки товаров через v4/products/stocks"""
+        stocks_data = {}
+        try:
+            # Разбиваем на группы по 100 product_id (лимит для v4/products/stocks)
+            for i in range(0, len(product_ids), 100):
+                batch_ids = product_ids[i:i+100]
             
-            stocks_response = requests.post(
-                "https://api-seller.ozon.ru/v4/products/stocks",
-                headers=self.headers,
-                json={
-                    "limit": 1000,
-                    "product_id": batch_ids
-                },
-                timeout=10
-            )
+                stocks_response = requests.post(
+                    "https://api-seller.ozon.ru/v4/products/stocks",
+                    headers=self.headers,
+                    json={
+                        "limit": 1000,
+                        "product_id": batch_ids
+                    },
+                    timeout=10
+                )
             
-            if stocks_response.status_code == 200:
-                stocks_result = stocks_response.json()
-                print(f"📦 Получен ответ от v4/products/stocks")
+                if stocks_response.status_code == 200:
+                    stocks_result = stocks_response.json()
+                    print(f"📦 Получен ответ от v4/products/stocks")
                 
-                # Обрабатываем структуру с массивом stocks
-                stock_items = stocks_result.get('stocks', [])
-                print(f"📦 Получены остатки для {len(stock_items)} товаров")
+                    # Обрабатываем структуру с массивом stocks
+                    stock_items = stocks_result.get('stocks', [])
+                    print(f"📦 Получены остатки для {len(stock_items)} товаров")
                 
-                for stock_item in stock_items:
-                    product_id = stock_item.get('product_id')
-                    if product_id:
-                        stocks_data[product_id] = stock_item
-                        print(f"📦 Остатки для товара {product_id}: stock = {stock_item.get('stock')}")
-            else:
-                print(f"⚠️ Ошибка получения остатков v4: {stocks_response.status_code}")
-                print(f"Текст ошибки: {stocks_response.text}")
+                    for stock_item in stock_items:
+                        product_id = stock_item.get('product_id')
+                        if product_id:
+                            stocks_data[product_id] = stock_item
+                            print(f"📦 Остатки для товара {product_id}: stock = {stock_item.get('stock')}")
+                else:
+                    print(f"⚠️ Ошибка получения остатков v4: {stocks_response.status_code}")
+                    print(f"Текст ошибки: {stocks_response.text}")
         
-        return stocks_data
+            return stocks_data
         
-    except Exception as e:
-        print(f"❌ Ошибка получения остатков v4: {e}")
-        return {}
+        except Exception as e:
+            print(f"❌ Ошибка получения остатков v4: {e}")
+            return {}
 
-def _extract_quantity(self, stock_item):
-    """Извлекает количество из структуры остатков v4/products/stocks"""
-    try:
-        if not stock_item:
-            print("⚠️ Нет данных об остатках, используем значение по умолчанию: 10")
+    def _extract_quantity(self, stock_item):
+        """Извлекает количество из структуры остатков v4/products/stocks"""
+        try:
+            if not stock_item:
+                print("⚠️ Нет данных об остатках, используем значение по умолчанию: 10")
+                return 10  # По умолчанию
+        
+            # Прямое поле stock из v4/products/stocks
+            if 'stock' in stock_item:
+                stock_value = stock_item['stock']
+                if stock_value is not None:
+                    try:
+                        stock_int = int(stock_value)
+                        if stock_int >= 0:
+                            print(f"✅ Количество из поля 'stock': {stock_int}")
+                            return stock_int
+                        else:
+                            print(f"⚠️ Отрицательное количество: {stock_int}, используем 0")
+                            return 0
+                    except (ValueError, TypeError) as e:
+                        print(f"⚠️ Ошибка преобразования stock: {e}")
+        
+            # Если stock нет, проверяем другие возможные поля
+            quantity_fields = ['quantity', 'available', 'present', 'fbo_stock', 'fbs_stock']
+            for field in quantity_fields:
+                if field in stock_item:
+                    value = stock_item[field]
+                    if value is not None:
+                        try:
+                            value_int = int(value)
+                            if value_int >= 0:
+                                print(f"✅ Количество из поля '{field}': {value_int}")
+                                return value_int
+                        except (ValueError, TypeError):
+                            pass
+        
+            print("⚠️ Не удалось определить количество, используем значение по умолчанию: 10")
             return 10  # По умолчанию
         
-        # Прямое поле stock из v4/products/stocks
-        if 'stock' in stock_item:
-            stock_value = stock_item['stock']
-            if stock_value is not None:
-                try:
-                    stock_int = int(stock_value)
-                    if stock_int >= 0:
-                        print(f"✅ Количество из поля 'stock': {stock_int}")
-                        return stock_int
-                    else:
-                        print(f"⚠️ Отрицательное количество: {stock_int}, используем 0")
-                        return 0
-                except (ValueError, TypeError) as e:
-                    print(f"⚠️ Ошибка преобразования stock: {e}")
-        
-        # Если stock нет, проверяем другие возможные поля
-        quantity_fields = ['quantity', 'available', 'present', 'fbo_stock', 'fbs_stock']
-        for field in quantity_fields:
-            if field in stock_item:
-                value = stock_item[field]
-                if value is not None:
-                    try:
-                        value_int = int(value)
-                        if value_int >= 0:
-                            print(f"✅ Количество из поля '{field}': {value_int}")
-                            return value_int
-                    except (ValueError, TypeError):
-                        pass
-        
-        print("⚠️ Не удалось определить количество, используем значение по умолчанию: 10")
-        return 10  # По умолчанию
-        
-    except Exception as e:
-        print(f"❌ Ошибка извлечения количества: {e}")
-        print(f"📋 Структура stock_item: {stock_item}")
-        return 10
+        except Exception as e:
+            print(f"❌ Ошибка извлечения количества: {e}")
+            print(f"📋 Структура stock_item: {stock_item}")
+            return 10
     
     def _clean_description(self, description):
         """Очищает описание от HTML тегов"""
