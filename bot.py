@@ -11,8 +11,7 @@ OZON_CLIENT_ID = os.environ.get('OZON_CLIENT_ID')
 
 # Кэш товаров
 products_cache = {}
-user_carts = {}
-user_orders = {}
+
 current_product_index = {}
 
 class OzonSellerAPI:
@@ -522,42 +521,43 @@ async def handle_product_action(query, context, callback_data):
             prev_index = len(products_cache)
         await show_product_detail(query, context, prev_index)
 
+# Убираем глобальные user_carts и user_orders, будем использовать context.user_data
+
 async def add_to_cart(query, context, product_index):
     """Добавляет товар в корзину"""
     user_id = query.from_user.id
+    
+    # Инициализируем корзину в user_data
+    if 'cart' not in context.user_data:
+        context.user_data['cart'] = {}
+    
+    cart = context.user_data['cart']
     product = products_cache.get(product_index)
     
     if not product:
         await query.answer("❌ Товар не найден", show_alert=True)
         return
     
-    if user_id not in user_carts:
-        user_carts[user_id] = {}
-    
-    cart = user_carts[user_id]
-    
     if product_index in cart:
         cart[product_index] += 1
     else:
         cart[product_index] = 1
     
-    # Используем show_alert=True для длинных сообщений
     product_name = product['name']
     if len(product_name) > 100:
         product_name = product_name[:97] + "..."
     
     await query.answer(f"✅ {product_name} добавлен в корзину!", show_alert=True)
-    await show_product_detail(query, context, product_index)
 
 async def show_cart(query, context):
     """Показывает корзину пользователя"""
-    user_id = query.from_user.id
+    # Получаем корзину из user_data
+    cart = context.user_data.get('cart', {})
     
-    if user_id not in user_carts or not user_carts[user_id]:
+    if not cart:
         await query.edit_message_text("🛒 Ваша корзина пуста")
         return
     
-    cart = user_carts[user_id]
     total = 0
     cart_text = "🛒 *Ваша корзина:*\n\n"
     
@@ -579,15 +579,61 @@ async def show_cart(query, context):
     
     await query.edit_message_text(cart_text, reply_markup=reply_markup, parse_mode='Markdown')
 
+async def checkout(query, context):
+    """Оформляет заказ"""
+    # Получаем корзину из user_data
+    cart = context.user_data.get('cart', {})
+    
+    if not cart:
+        await query.answer("❌ Корзина пуста", show_alert=True)
+        return
+    
+    total = 0
+    items_count = 0
+    
+    for product_index, quantity in cart.items():
+        product = products_cache.get(product_index)
+        if product:
+            total += product['price'] * quantity
+            items_count += quantity
+    
+    # Сохраняем заказ в user_data
+    if 'orders' not in context.user_data:
+        context.user_data['orders'] = []
+    
+    context.user_data['orders'].append({
+        'total': total,
+        'items_count': items_count,
+        'date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    })
+    
+    # ОЧИЩАЕМ КОРЗИНУ
+    context.user_data['cart'] = {}
+    
+    await query.edit_message_text(
+        f"✅ *Заказ оформлен!*\n\n"
+        f"💰 Сумма: {total} ₽\n"
+        f"📦 Товаров: {items_count} шт.\n"
+        f"📅 Дата: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+        f"Спасибо за покупку! 🎉",
+        parse_mode='Markdown'
+    )
+
+async def clear_cart(query, context):
+    """Очищает корзину"""
+    # Очищаем корзину в user_data
+    context.user_data['cart'] = {}
+    await query.edit_message_text("🗑️ Корзина очищена")
+
 async def show_orders(query, context):
     """Показывает заказы пользователя"""
-    user_id = query.from_user.id
+    # Получаем заказы из user_data
+    orders = context.user_data.get('orders', [])
     
-    if user_id not in user_orders or not user_orders[user_id]:
+    if not orders:
         await query.edit_message_text("📦 У вас пока нет заказов")
         return
     
-    orders = user_orders[user_id]
     orders_text = "📦 *Ваши заказы:*\n\n"
     
     for i, order in enumerate(orders, 1):
@@ -603,6 +649,7 @@ async def show_orders(query, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(orders_text, reply_markup=reply_markup, parse_mode='Markdown')
+    
 
 async def refresh_products_callback(query, context):
     """Обновляет товары через callback"""
