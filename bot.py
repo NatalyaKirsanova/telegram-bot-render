@@ -239,7 +239,7 @@ class OzonSellerAPI:
             
                 # Используем v2/product/info/list который возвращает основную информацию включая stock
                 info_response = requests.post(
-                    "https://api-seller.ozon.ru/v2/product/info/list",
+                    "https://api-seller.ozon.ru/v2/products/stocks",
                     headers=self.headers,
                     json={
                         "product_id": batch_ids
