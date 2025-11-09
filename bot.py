@@ -164,7 +164,7 @@ class OzonSellerAPI:
                 batch_ids = product_ids[i:i+50]
                 
                 prices_response = requests.post(
-                    "https://api-seller.ozon.ru/v4/product/info/prices",
+                    "https://api-seller.ozon.ru/v5/product/info/prices",
                     headers=self.headers,
                     json={
                         "filter": {
