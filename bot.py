@@ -27,16 +27,16 @@ class OzonSellerAPI:
         print("🔄 Получение товаров через v3/product/info/list...")
         
         try:
-            # Получаем список товаров через v3/product/info/llist
+            # Получаем список товаров через v3/product/info/list
             products_response = requests.post(
-                "https://api-seller.ozon.ru/v3/product/info/llist",
+                "https://api-seller.ozon.ru/v3/product/info/list",
                 headers=self.headers,
                 json={"filter": {}, "limit": limit, "sort_dir": "ASC"},
                 timeout=10
             )
             
             if products_response.status_code != 200:
-                print(f"❌ Ошибка v3/product/info/llist: {products_response.status_code}")
+                print(f"❌ Ошибка v3/product/info/list: {products_response.status_code}")
                 print(f"Текст ошибки: {products_response.text}")
                 return None
             
