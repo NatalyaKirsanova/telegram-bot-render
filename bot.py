@@ -3,6 +3,7 @@ import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 import asyncio
+import datetime
 
 # Токены
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -523,6 +524,7 @@ async def handle_product_action(query, context, callback_data):
 
 # Убираем глобальные user_carts и user_orders, будем использовать context.user_data
 
+
 async def add_to_cart(query, context, product_index):
     """Добавляет товар в корзину"""
     # Инициализируем корзину в user_data
@@ -666,91 +668,6 @@ async def refresh_products_callback(query, context):
             "Проверьте настройки API ключей Ozon."
         )
 
-async def handle_cart_action(query, context, callback_data):
-    """Обрабатывает действия с корзиной"""
-    if callback_data == "checkout":
-        await checkout(query, context)
-    elif callback_data == "clear_cart":
-        await clear_cart(query, context)
-
-async def checkout(query, context):
-    """Оформляет заказ"""
-    user_id = query.from_user.id
-    
-        
-    if user_id not in user_carts or not user_carts[user_id]:
-        await query.answer("❌ Корзина пуста", show_alert=True)
-        return
-    
-    cart = user_carts[user_id].copy()  # Делаем копию корзины
-    total = 0
-    items_count = 0
-    
-    # Считаем сумму и количество
-    for product_index, quantity in cart.items():
-        product = products_cache.get(product_index)
-        if product:
-            total += product['price'] * quantity
-            items_count += quantity
-            print(f"📦 Товар {product_index}: {quantity} × {product['price']} ₽")
-    
-    print(f"💰 Итого: {total} ₽, товаров: {items_count} шт.")
-    
-    # Сохраняем заказ
-    if user_id not in user_orders:
-        user_orders[user_id] = []
-    
-    user_orders[user_id].append({
-        'total': total,
-        'items_count': items_count,
-        'date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    })
-    
-    # ОЧИЩАЕМ КОРЗИНУ
-    user_carts[user_id] = {}
-    
-    
-    await query.edit_message_text(
-        f"✅ *Заказ оформлен!*\n\n"
-        f"💰 Сумма: {total} ₽\n"
-        f"📦 Товаров: {items_count} шт.\n"
-        f"📅 Дата: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-        f"Спасибо за покупку! 🎉",
-        parse_mode='Markdown'
-    )
-
-async def show_cart(query, context):
-    """Показывает корзину пользователя"""
-    # Получаем корзину из user_data
-    cart = context.user_data.get('cart', {})
-    
-    # УДАЛИТЬ эту строку:
-    # print(f"🔍 Показываем корзину пользователя {user_id}: {user_carts.get(user_id)}")
-    
-    if not cart:
-        await query.edit_message_text("🛒 Ваша корзина пуста")
-        return
-    
-    total = 0
-    cart_text = "🛒 *Ваша корзина:*\n\n"
-    
-    for product_index, quantity in cart.items():
-        product = products_cache.get(int(product_index))
-        if product:
-            item_total = product['price'] * quantity
-            total += item_total
-            cart_text += f"• {product['name']}\n  {quantity} × {product['price']} ₽ = {item_total} ₽\n"
-    
-    cart_text += f"\n💵 *Итого:* {total} ₽"
-    
-    keyboard = [
-        [InlineKeyboardButton("💰 Оформить заказ", callback_data="checkout")],
-        [InlineKeyboardButton("🛍️ Продолжить покупки", callback_data="view_products"),
-         InlineKeyboardButton("🗑️ Очистить корзину", callback_data="clear_cart")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(cart_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 
 
