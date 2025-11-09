@@ -452,6 +452,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_orders(query, context)
     elif callback_data == "refresh_products":
         await refresh_products_callback(query, context)
+    elif callback_data == "checkout":
+        await checkout(query, context)
+    elif callback_data == "clear_cart":
+        await clear_cart(query, context)
     elif callback_data.startswith("product_"):
         await handle_product_action(query, context, callback_data)
     elif callback_data.startswith("cart_"):
@@ -566,7 +570,10 @@ async def show_cart(query, context):
         if product:
             item_total = product['price'] * quantity
             total += item_total
-            cart_text += f"• {product['name']}\n  {quantity} × {product['price']} ₽ = {item_total} ₽\n"
+            product_name = product['name']
+            if len(product_name) > 50:
+                product_name = product_name[:47] + "..."
+            cart_text += f"• {product_name}\n  {quantity} × {product['price']} ₽ = {item_total} ₽\n"
     
     cart_text += f"\n💵 *Итого:* {total} ₽"
     
@@ -590,12 +597,15 @@ async def checkout(query, context):
     
     total = 0
     items_count = 0
+    order_details = []
     
     for product_index, quantity in cart.items():
         product = products_cache.get(int(product_index))
         if product:
-            total += product['price'] * quantity
+            item_total = product['price'] * quantity
+            total += item_total
             items_count += quantity
+            order_details.append(f"• {product['name']} - {quantity} шт. × {product['price']} ₽")
     
     # Сохраняем заказ в user_data
     if 'orders' not in context.user_data:
@@ -604,27 +614,28 @@ async def checkout(query, context):
     context.user_data['orders'].append({
         'total': total,
         'items_count': items_count,
-        'date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        'date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        'details': order_details
     })
     
     # ОЧИЩАЕМ КОРЗИНУ
     context.user_data['cart'] = {}
     
-    await query.edit_message_text(
-        f"✅ *Заказ оформлен!*\n\n"
-        f"💰 Сумма: {total} ₽\n"
-        f"📦 Товаров: {items_count} шт.\n"
-        f"📅 Дата: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-        f"Спасибо за покупку! 🎉",
-        parse_mode='Markdown'
-    )
+    order_text = f"✅ *Заказ оформлен!*\n\n"
+    order_text += f"💰 Сумма: {total} ₽\n"
+    order_text += f"📦 Товаров: {items_count} шт.\n"
+    order_text += f"📅 Дата: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+    order_text += "Состав заказа:\n" + "\n".join(order_details)
+    order_text += "\n\nСпасибо за покупку! 🎉"
+    
+    await query.edit_message_text(order_text, parse_mode='Markdown')
 
 async def clear_cart(query, context):
     """Очищает корзину"""
     # Очищаем корзину в user_data
     context.user_data['cart'] = {}
     await query.edit_message_text("🗑️ Корзина очищена")
-
+    
 async def show_orders(query, context):
     """Показывает заказы пользователя"""
     # Получаем заказы из user_data
