@@ -678,18 +678,7 @@ async def refresh_products_callback(query, context):
             "❌ Не удалось загрузить реальные товары.\n"
             "Проверьте настройки API ключей Ozon."
         )
-
-
-
-
-
-async def clear_cart(query, context):
-    """Очищает корзину"""
-    user_id = query.from_user.id
-    print(f"🗑️ Очищаем корзину пользователя {user_id}")
-    user_carts[user_id] = {}
     
-    await query.edit_message_text("🗑️ Корзина очищена")
 
 async def preload_products():
     """Предзагрузка товаров при запуске"""
