@@ -61,8 +61,8 @@ class OzonSellerAPI:
             print("🔍 Получаем описания товаров через v1/product/info/description...")
             descriptions_data = self._get_products_descriptions(product_ids)
             
-            # 3. Получаем цены через v4/product/info/prices
-            print("🔍 Получаем цены через v4/product/info/prices...")
+            # 3. Получаем цены через v5/product/info/prices
+            print("🔍 Получаем цены через v5/product/info/prices...")
             prices_data = self._get_products_prices(product_ids)
             
             # 4. Получаем остатки через v3/product/info/stocks
