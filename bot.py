@@ -154,52 +154,52 @@ class OzonSellerAPI:
         except Exception as e:
             print(f"❌ Ошибка получения описаний: {e}")
             return {}
-    
-def _get_products_prices_v5(self, product_ids):
-    """Получает цены товаров через v5/product/info/prices"""
-    prices_data = {}
-    try:
-        # Разбиваем на группы по 50 product_id
-        for i in range(0, len(product_ids), 50):
-            batch_ids = product_ids[i:i+50]
+    def _get_products_prices_v5(self, product_ids):
+        """Получает цены товаров через v5/product/info/prices"""
+        prices_data = {}
+        try:
+            # Разбиваем на группы по 50 product_id
+            for i in range(0, len(product_ids), 50):
+                batch_ids = product_ids[i:i+50]
             
-            prices_response = requests.post(
-                "https://api-seller.ozon.ru/v5/product/info/prices",
-                headers=self.headers,
-                json={
-                    "filter": {
-                        "product_id": batch_ids,
-                        "visibility": "ALL"
+                prices_response = requests.post(
+                    "https://api-seller.ozon.ru/v5/product/info/prices",
+                    headers=self.headers,
+                    json={
+                        "filter": {
+                            "product_id": batch_ids,
+                            "visibility": "ALL"
+                        },
+                        "last_id": "",
+                        "limit": 1000
                     },
-                    "last_id": "",
-                    "limit": 1000
-                },
-                timeout=10
-            )
+                    timeout=10
+                )
             
-            if prices_response.status_code == 200:
-                prices_result = prices_response.json()
-                price_items = prices_result.get('result', {}).get('items', [])
-                print(f"💰 Получены цены для {len(price_items)} товаров")
+                if prices_response.status_code == 200:
+                    prices_result = prices_response.json()
+                    price_items = prices_result.get('result', {}).get('items', [])
+                    print(f"💰 Получены цены для {len(price_items)} товаров")
                 
-                for price_item in price_items:
-                    product_id = price_item.get('product_id')
-                    prices_data[product_id] = price_item
+                    for price_item in price_items:
+                        product_id = price_item.get('product_id')
+                        prices_data[product_id] = price_item
                     
-                    # Выводим всю структуру для анализа
-                    print(f"🔍 Полная структура цены для {product_id}:")
-                    import json
-                    print(json.dumps(price_item, indent=2, ensure_ascii=False))
+                        # Выводим всю структуру для анализа
+                        print(f"🔍 Полная структура цены для {product_id}:")
+                        import json
+                        print(json.dumps(price_item, indent=2, ensure_ascii=False))
                     
-            else:
-                print(f"❌ Ошибка получения цен v5: {prices_response.status_code}")
-                print(f"Текст ошибки: {prices_response.text}")
+                else:
+                    print(f"❌ Ошибка получения цен v5: {prices_response.status_code}")
+                    print(f"Текст ошибки: {prices_response.text}")
         
-        return prices_data
+            return prices_data
         
-    except Exception as e:
-        print(f"❌ Ошибка получения цен v5: {e}")
-        return {}
+        except Exception as e:
+            print(f"❌ Ошибка получения цен v5: {e}")
+            return {}
+
 
 def _extract_price_from_v5(self, price_item):
     """Извлекает цену из структуры Ozon v5"""
