@@ -239,7 +239,7 @@ class OzonSellerAPI:
             
                 # Используем v2/product/info/list который возвращает основную информацию включая stock
                 info_response = requests.post(
-                    "https://api-seller.ozon.ru/v2/products/stocks",
+                    "https://api-seller.ozon.ru/v2/product/info/list",
                     headers=self.headers,
                     json={
                         "product_id": batch_ids
@@ -370,6 +370,60 @@ class OzonSellerAPI:
         
         return clean_text
 
+    def create_ozon_order(self, order_data):
+        """Создает реальный заказ в Ozon"""
+        try:
+            # Подготавливаем данные для создания заказа в Ozon
+            ozon_order_data = {
+                "address": {
+                    "address": order_data.get('customer_address', 'Адрес не указан'),
+                    "city": order_data.get('customer_city', 'Город не указан'),
+                    "name": order_data.get('customer_name', 'Покупатель'),
+                    "phone": order_data.get('customer_phone', 'Телефон не указан'),
+                    "zip_code": order_data.get('customer_zip', '')
+                },
+                "delivery_type": "standard",
+                "products": [],
+                "comment": f"Заказ из Telegram бота. ID: {order_data['order_id']}"
+            }
+            
+            # Добавляем товары в заказ
+            for item in order_data['items']:
+                ozon_order_data["products"].append({
+                    "product_id": item['product_id'],
+                    "quantity": item['quantity'],
+                    "price": str(item['price'])
+                })
+            
+            print(f"📦 Создаем заказ в Ozon: {ozon_order_data}")
+            
+            # Создаем заказ через Ozon API
+            order_response = requests.post(
+                "https://api-seller.ozon.ru/v3/posting/fbs/create",
+                headers=self.headers,
+                json=ozon_order_data,
+                timeout=10
+            )
+            
+            if order_response.status_code == 200:
+                result = order_response.json()
+                print(f"✅ Заказ создан в Ozon: {result}")
+                
+                # Сохраняем ID заказа Ozon
+                if 'result' in result and 'posting_number' in result['result']:
+                    order_data['ozon_posting_number'] = result['result']['posting_number']
+                    order_data['ozon_order_id'] = result['result']['order_id']
+                
+                return result
+            else:
+                print(f"❌ Ошибка создания заказа в Ozon: {order_response.status_code}")
+                print(f"Текст ошибки: {order_response.text}")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Ошибка создания заказа в Ozon: {e}")
+            return None
+
 # Инициализация API
 ozon_api = OzonSellerAPI()
 
@@ -453,6 +507,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • 📦 Просматривать реальные товары
 • 🛒 Добавлять товары в корзину
 • 💰 Оформлять заказы
+• 📱 Перейти в личный кабинет Ozon
 
 Используйте кнопки ниже для навигации:
     """
@@ -461,7 +516,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🛍️ Смотреть товары", callback_data="view_products")],
         [InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"),
          InlineKeyboardButton("📦 Мои заказы", callback_data="view_orders")],
-        [InlineKeyboardButton("🔄 Обновить товары", callback_data="refresh_products")]
+        [InlineKeyboardButton("🔄 Обновить товары", callback_data="refresh_products")],
+        [InlineKeyboardButton("📱 Личный кабинет Ozon", url="https://seller.ozon.ru/app/")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -504,10 +560,30 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await checkout(query, context)
     elif callback_data == "clear_cart":
         await clear_cart(query, context)
+    elif callback_data == "ozon_cabinet":
+        await open_ozon_cabinet(query, context)
     elif callback_data.startswith("product_"):
         await handle_product_action(query, context, callback_data)
     elif callback_data.startswith("cart_"):
         await handle_cart_action(query, context, callback_data)
+
+async def open_ozon_cabinet(query, context):
+    """Открывает личный кабинет Ozon"""
+    keyboard = [
+        [InlineKeyboardButton("📊 Статистика", url="https://seller.ozon.ru/app/analytics")],
+        [InlineKeyboardButton("📦 Заказы", url="https://seller.ozon.ru/app/orders")],
+        [InlineKeyboardButton("🏪 Товары", url="https://seller.ozon.ru/app/products")],
+        [InlineKeyboardButton("💰 Финансы", url="https://seller.ozon.ru/app/finance")],
+        [InlineKeyboardButton("⬅️ Назад", callback_data="back_to_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "📱 *Личный кабинет Ozon*\n\n"
+        "Выберите раздел для перехода:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
 
 async def show_products(query, context):
     """Показывает список реальных товаров"""
@@ -544,7 +620,8 @@ async def show_product_detail(query, context, product_index):
         [InlineKeyboardButton("⬅️ Предыдущий", callback_data=f"product_prev_{product_index}"),
          InlineKeyboardButton("Следующий ➡️", callback_data=f"product_next_{product_index}")],
         [InlineKeyboardButton("📋 К списку товаров", callback_data="view_products"),
-         InlineKeyboardButton("🛒 Корзина", callback_data="view_cart")]
+         InlineKeyboardButton("🛒 Корзина", callback_data="view_cart")],
+        [InlineKeyboardButton("📱 Личный кабинет Ozon", callback_data="ozon_cabinet")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -604,7 +681,15 @@ async def show_cart(query, context):
     cart = context.user_data.get('cart', {})
     
     if not cart:
-        await query.edit_message_text("🛒 Ваша корзина пуста")
+        cart_text = "🛒 *Ваша корзина пуста*"
+        
+        keyboard = [
+            [InlineKeyboardButton("🛍️ Начать покупки", callback_data="view_products")],
+            [InlineKeyboardButton("📱 Личный кабинет Ozon", callback_data="ozon_cabinet")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(cart_text, reply_markup=reply_markup, parse_mode='Markdown')
         return
     
     total = 0
@@ -625,14 +710,15 @@ async def show_cart(query, context):
     keyboard = [
         [InlineKeyboardButton("💰 Оформить заказ", callback_data="checkout")],
         [InlineKeyboardButton("🛍️ Продолжить покупки", callback_data="view_products"),
-         InlineKeyboardButton("🗑️ Очистить корзину", callback_data="clear_cart")]
+         InlineKeyboardButton("🗑️ Очистить корзину", callback_data="clear_cart")],
+        [InlineKeyboardButton("📱 Личный кабинет Ozon", callback_data="ozon_cabinet")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(cart_text, reply_markup=reply_markup, parse_mode='Markdown')
 
 async def checkout(query, context):
-    """Оформляет заказ"""
+    """Оформляет заказ с созданием в Ozon"""
     # Получаем корзину из user_data
     cart = context.user_data.get('cart', {})
     
@@ -640,46 +726,156 @@ async def checkout(query, context):
         await query.answer("❌ Корзина пуста", show_alert=True)
         return
     
-    total = 0
-    items_count = 0
-    order_details = []
+    # Запрашиваем контактные данные
+    await query.edit_message_text(
+        "📋 *Оформление заказа*\n\n"
+        "Пожалуйста, введите ваши контактные данные в формате:\n"
+        "• Имя и фамилия\n"
+        "• Номер телефона\n"
+        "• Город\n"
+        "• Адрес доставки\n\n"
+        "Пример:\n"
+        "Иван Иванов\n"
+        "+79123456789\n"
+        "Москва\n"
+        "ул. Примерная, д. 1, кв. 1",
+        parse_mode='Markdown'
+    )
     
-    for product_index, quantity in cart.items():
-        product = products_cache.get(int(product_index))
-        if product:
-            item_total = product['price'] * quantity
-            total += item_total
-            items_count += quantity
-            order_details.append(f"• {product['name']} - {quantity} шт. × {product['price']} ₽")
+    # Переходим в состояние ожидания контактных данных
+    context.user_data['waiting_for_contacts'] = True
+    context.user_data['checkout_cart'] = cart.copy()
+
+async def handle_contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает ввод контактных данных"""
+    if context.user_data.get('waiting_for_contacts'):
+        contacts = update.message.text
+        cart = context.user_data.get('checkout_cart', {})
+        
+        # Парсим контактные данные
+        contact_lines = contacts.split('\n')
+        customer_name = contact_lines[0] if len(contact_lines) > 0 else "Не указано"
+        customer_phone = contact_lines[1] if len(contact_lines) > 1 else "Не указано"
+        customer_city = contact_lines[2] if len(contact_lines) > 2 else "Не указано"
+        customer_address = contact_lines[3] if len(contact_lines) > 3 else "Не указано"
+        
+        # Создаем заказ
+        await process_order(update, context, cart, customer_name, customer_phone, customer_city, customer_address)
+        
+        # Очищаем временные данные
+        context.user_data['waiting_for_contacts'] = False
+        context.user_data['checkout_cart'] = {}
+
+async def process_order(update, context, cart, customer_name, customer_phone, customer_city, customer_address):
+    """Обрабатывает создание заказа"""
+    user_id = update.effective_user.id
     
-    # Сохраняем заказ в user_data
-    if 'orders' not in context.user_data:
-        context.user_data['orders'] = []
-    
-    context.user_data['orders'].append({
-        'total': total,
-        'items_count': items_count,
-        'date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-        'details': order_details
-    })
-    
-    # ОЧИЩАЕМ КОРЗИНУ
-    context.user_data['cart'] = {}
-    
-    order_text = f"✅ *Заказ оформлен!*\n\n"
-    order_text += f"💰 Сумма: {total} ₽\n"
-    order_text += f"📦 Товаров: {items_count} шт.\n"
-    order_text += f"📅 Дата: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-    order_text += "Состав заказа:\n" + "\n".join(order_details)
-    order_text += "\n\nСпасибо за покупку! 🎉"
-    
-    await query.edit_message_text(order_text, parse_mode='Markdown')
+    try:
+        # Расчет итогов
+        total = 0
+        items_count = 0
+        order_items = []
+        
+        for product_index, quantity in cart.items():
+            product = products_cache.get(int(product_index))
+            if product:
+                item_total = product['price'] * quantity
+                total += item_total
+                items_count += quantity
+                order_items.append({
+                    'product_id': product['product_id'],
+                    'offer_id': product['offer_id'],
+                    'name': product['name'],
+                    'quantity': quantity,
+                    'price': product['price']
+                })
+        
+        # Создаем данные заказа
+        order_id = f"order_{user_id}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        order_data = {
+            'order_id': order_id,
+            'total': total,
+            'items_count': items_count,
+            'customer_name': customer_name,
+            'customer_phone': customer_phone,
+            'customer_city': customer_city,
+            'customer_address': customer_address,
+            'items': order_items,
+            'status': 'created',
+            'created_at': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        # Создаем заказ в Ozon
+        ozon_result = ozon_api.create_ozon_order(order_data)
+        
+        if ozon_result:
+            # Сохраняем ID заказа Ozon
+            if 'result' in ozon_result:
+                order_data['ozon_posting_number'] = ozon_result['result'].get('posting_number')
+                order_data['ozon_order_id'] = ozon_result['result'].get('order_id')
+                order_data['status'] = 'created_in_ozon'
+            
+            # Сохраняем заказ
+            if 'orders' not in context.user_data:
+                context.user_data['orders'] = []
+            context.user_data['orders'].append(order_data)
+            
+            # Очищаем корзину
+            context.user_data['cart'] = {}
+            
+            # Формируем сообщение об успехе
+            order_text = f"✅ *Заказ создан в Ozon!*\n\n"
+            order_text += f"💰 Сумма: {total} ₽\n"
+            order_text += f"📦 Товаров: {items_count} шт.\n"
+            order_text += f"👤 Получатель: {customer_name}\n"
+            order_text += f"📞 Телефон: {customer_phone}\n"
+            order_text += f"🏠 Адрес: {customer_city}, {customer_address}\n"
+            
+            if order_data.get('ozon_posting_number'):
+                order_text += f"🔗 Номер заказа в Ozon: {order_data['ozon_posting_number']}\n"
+            
+            order_text += f"\n📅 Дата: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+            order_text += "Состав заказа:\n"
+            for item in order_items:
+                order_text += f"• {item['name']} - {item['quantity']} шт. × {item['price']} ₽\n"
+            
+            order_text += "\n📱 Вы можете отслеживать статус заказа в личном кабинете Ozon"
+            
+            keyboard = [
+                [InlineKeyboardButton("📱 Открыть личный кабинет", url="https://seller.ozon.ru/app/orders")],
+                [InlineKeyboardButton("🛍️ Продолжить покупки", callback_data="view_products")],
+                [InlineKeyboardButton("📦 Мои заказы", callback_data="view_orders")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(order_text, reply_markup=reply_markup, parse_mode='Markdown')
+            
+        else:
+            await update.message.reply_text(
+                "❌ Не удалось создать заказ в Ozon. Попробуйте позже или обратитесь в поддержку.",
+                parse_mode='Markdown'
+            )
+            
+    except Exception as e:
+        print(f"❌ Ошибка обработки заказа: {e}")
+        await update.message.reply_text(
+            "❌ Произошла ошибка при оформлении заказа. Попробуйте позже.",
+            parse_mode='Markdown'
+        )
 
 async def clear_cart(query, context):
     """Очищает корзину"""
     # Очищаем корзину в user_data
     context.user_data['cart'] = {}
-    await query.edit_message_text("🗑️ Корзина очищена")
+    
+    keyboard = [
+        [InlineKeyboardButton("🛍️ Начать покупки", callback_data="view_products")],
+        [InlineKeyboardButton("📱 Личный кабинет Ozon", callback_data="ozon_cabinet")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text("🗑️ *Корзина очищена*", reply_markup=reply_markup, parse_mode='Markdown')
     
 async def show_orders(query, context):
     """Показывает заказы пользователя"""
@@ -687,20 +883,36 @@ async def show_orders(query, context):
     orders = context.user_data.get('orders', [])
     
     if not orders:
-        await query.edit_message_text("📦 У вас пока нет заказов")
+        orders_text = "📦 *У вас пока нет заказов*"
+        
+        keyboard = [
+            [InlineKeyboardButton("🛍️ Начать покупки", callback_data="view_products")],
+            [InlineKeyboardButton("📱 Личный кабинет Ozon", callback_data="ozon_cabinet")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(orders_text, reply_markup=reply_markup, parse_mode='Markdown')
         return
     
-    orders_text = "📦 *Ваши заказы:*\n\n"
+    orders_text = "📦 *История ваших заказов:*\n\n"
     
     for i, order in enumerate(orders, 1):
         orders_text += f"*Заказ #{i}:*\n"
         orders_text += f"💰 Сумма: {order['total']} ₽\n"
-        orders_text += f"📅 Дата: {order['date']}\n"
-        orders_text += f"📋 Товаров: {order['items_count']} шт.\n\n"
+        orders_text += f"📅 Дата: {order['created_at']}\n"
+        orders_text += f"📦 Товаров: {order['items_count']} шт.\n"
+        orders_text += f"👤 Получатель: {order['customer_name']}\n"
+        
+        if order.get('ozon_posting_number'):
+            orders_text += f"🔗 Номер в Ozon: {order['ozon_posting_number']}\n"
+        
+        orders_text += f"📊 Статус: {order.get('status', 'создан')}\n"
+        orders_text += "━━━━━━━━━━━━━━━━━━━━\n\n"
     
     keyboard = [
-        [InlineKeyboardButton("🛍️ К товарам", callback_data="view_products")],
-        [InlineKeyboardButton("🛒 Корзина", callback_data="view_cart")]
+        [InlineKeyboardButton("📱 Открыть заказы в Ozon", url="https://seller.ozon.ru/app/orders")],
+        [InlineKeyboardButton("🛒 Корзина", callback_data="view_cart")],
+        [InlineKeyboardButton("🛍️ К товарам", callback_data="view_products")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -714,14 +926,30 @@ async def refresh_products_callback(query, context):
     products_count_after = len(products_cache)
     
     if products_count_after > 0:
+        keyboard = [
+            [InlineKeyboardButton("🛍️ Смотреть товары", callback_data="view_products")],
+            [InlineKeyboardButton("📱 Личный кабинет Ozon", callback_data="ozon_cabinet")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await query.edit_message_text(
-            f"✅ Реальные товары обновлены!\n"
-            f"📦 Доступно товаров: {products_count_after}"
+            f"✅ *Реальные товары обновлены!*\n"
+            f"📦 Доступно товаров: {products_count_after}",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
         )
     else:
+        keyboard = [
+            [InlineKeyboardButton("🔄 Попробовать снова", callback_data="refresh_products")],
+            [InlineKeyboardButton("📱 Личный кабинет Ozon", callback_data="ozon_cabinet")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await query.edit_message_text(
-            "❌ Не удалось загрузить реальные товары.\n"
-            "Проверьте настройки API ключей Ozon."
+            "❌ *Не удалось загрузить реальные товары.*\n"
+            "Проверьте настройки API ключей Ozon.",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
         )
 
 async def preload_products():
@@ -745,6 +973,10 @@ def main():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("refresh", refresh_products))
     application.add_handler(CallbackQueryHandler(handle_callback))
+    
+    # Добавляем обработчик текстовых сообщений для контактов
+    from telegram.ext import MessageHandler, filters
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_contacts))
     
     # Предзагрузка реальных товаров
     print("🔄 Загрузка реальных товаров из Ozon...")
