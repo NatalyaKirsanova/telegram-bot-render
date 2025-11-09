@@ -517,7 +517,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🛒 Корзина", callback_data="view_cart"),
          InlineKeyboardButton("📦 Мои заказы", callback_data="view_orders")],
         [InlineKeyboardButton("🔄 Обновить товары", callback_data="refresh_products")],
-        [InlineKeyboardButton("📱 Личный кабинет Ozon", url="https://seller.ozon.ru/app/")]
+        [InlineKeyboardButton("📱 Личный кабинет Ozon", url="https://www.ozon.ru/my/orderlist/")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
