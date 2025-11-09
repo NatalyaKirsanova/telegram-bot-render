@@ -226,9 +226,7 @@ class OzonSellerAPI:
         
         except Exception as e:
             print(f"❌ Ошибка извлечения цены: {e}")
-            return 0 
-    
-    
+            return 0
     
     def _get_products_stocks(self, product_ids):
         """Получает остатки товаров через v1/product/info/warehouse/stocks"""
@@ -238,7 +236,7 @@ class OzonSellerAPI:
             for i in range(0, len(product_ids), 50):
                 batch_ids = product_ids[i:i+50]
                 
-                    stocks_response = requests.post(
+                stocks_response = requests.post(
                     "https://api-seller.ozon.ru/v1/product/info/warehouse/stocks",
                     headers=self.headers,
                     json={
@@ -247,15 +245,15 @@ class OzonSellerAPI:
                     },
                     timeout=10
                 )
-            
+                
                 if stocks_response.status_code == 200:
                     stocks_result = stocks_response.json()
                     print(f"📦 Получен ответ от v1/product/info/warehouse/stocks")
-                
+                    
                     # Обрабатываем структуру с массивом stocks
                     stock_items = stocks_result.get('stocks', [])
                     print(f"📦 Получены остатки для {len(stock_items)} товаров")
-                
+                    
                     for stock_item in stock_items:
                         product_id = stock_item.get('product_id')
                         if product_id:
@@ -276,7 +274,7 @@ class OzonSellerAPI:
                 else:
                     print(f"⚠️ Ошибка получения остатков v1: {stocks_response.status_code}")
                     print(f"Текст ошибки: {stocks_response.text}")
-        
+            
             return stocks_data
             
         except Exception as e:
@@ -306,7 +304,7 @@ class OzonSellerAPI:
                             return 0
                     except (ValueError, TypeError) as e:
                         print(f"⚠️ Ошибка преобразования free_stock: {e}")
-        
+            
             # Способ 2: present - reserved (физически на складе минус зарезервировано)
             if 'present' in stock_item and 'reserved' in stock_item:
                 present = stock_item.get('present', 0)
@@ -315,7 +313,7 @@ class OzonSellerAPI:
                 if available >= 0:
                     print(f"✅ Количество из present({present}) - reserved({reserved}) = {available}")
                     return available
-        
+            
             # Способ 3: только present (физически на складе)
             if 'present' in stock_item:
                 present = stock_item['present']
@@ -327,7 +325,7 @@ class OzonSellerAPI:
                             return present_int
                     except (ValueError, TypeError):
                         pass
-        
+            
             print("⚠️ Не удалось определить количество, используем значение по умолчанию: 10")
             return 10  # По умолчанию
             
@@ -335,11 +333,11 @@ class OzonSellerAPI:
             print(f"❌ Ошибка извлечения количества: {e}")
             print(f"📋 Структура stock_item: {stock_item}")
             return 10
-        
-        def _clean_description(self, description):
-            """Очищает описание от HTML тегов"""
-            if not description:
-                return ""
+    
+    def _clean_description(self, description):
+        """Очищает описание от HTML тегов"""
+        if not description:
+            return ""
         
         # Удаляем основные HTML теги
         import re
@@ -416,8 +414,6 @@ async def load_real_products():
     print(f"🎯 Загружено {len(products)} реальных товаров с реальными ценами из Ozon")
     products_cache = products
     return products
-
-# ... остальные функции бота остаются без изменений ...
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
@@ -555,9 +551,6 @@ async def handle_product_action(query, context, callback_data):
         if prev_index < 1:
             prev_index = len(products_cache)
         await show_product_detail(query, context, prev_index)
-
-# Убираем глобальные user_carts и user_orders, будем использовать context.user_data
-
 
 async def add_to_cart(query, context, product_index):
     """Добавляет товар в корзину"""
@@ -708,7 +701,6 @@ async def refresh_products_callback(query, context):
             "❌ Не удалось загрузить реальные товары.\n"
             "Проверьте настройки API ключей Ozon."
         )
-    
 
 async def preload_products():
     """Предзагрузка товаров при запуске"""
