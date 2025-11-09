@@ -708,7 +708,7 @@ async def checkout(query, context):
     
     # ОЧИЩАЕМ КОРЗИНУ
     user_carts[user_id] = {}
-    print(f"🗑️ Корзина очищена: {user_carts.get(user_id)}")
+    
     
     await query.edit_message_text(
         f"✅ *Заказ оформлен!*\n\n"
@@ -723,7 +723,7 @@ async def show_cart(query, context):
     """Показывает корзину пользователя"""
     user_id = query.from_user.id
     
-    print(f"🔍 Показываем корзину пользователя {user_id}: {user_carts.get(user_id)}")
+    
     
     if user_id not in user_carts or not user_carts[user_id]:
         await query.edit_message_text("🛒 Ваша корзина пуста")
@@ -759,7 +759,7 @@ async def clear_cart(query, context):
     user_id = query.from_user.id
     print(f"🗑️ Очищаем корзину пользователя {user_id}")
     user_carts[user_id] = {}
-    print(f"✅ Корзина очищена: {user_carts.get(user_id)}")
+    
     await query.edit_message_text("🗑️ Корзина очищена")
 
 async def preload_products():
