@@ -64,7 +64,7 @@ class OzonSellerAPI:
             info_response = requests.post(
                 "https://api-seller.ozon.ru/v2/product/info/list",
                 headers=self.headers,
-                json({"offer_id": offer_ids}),
+                json={"offer_id": offer_ids},
                 timeout=10
             )
             
@@ -81,13 +81,13 @@ class OzonSellerAPI:
             prices_response = requests.post(
                 "https://api-seller.ozon.ru/v4/product/info/prices",
                 headers=self.headers,
-                json({
+                json={
                     "filter": {
                         "offer_id": offer_ids,
                         "visibility": "ALL"
                     },
                     "limit": 100
-                }),
+                },
                 timeout=10
             )
             
