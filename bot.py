@@ -44,11 +44,6 @@ class OzonSellerAPI:
                 "name": "v2/category/tree",
                 "url": "https://api-seller.ozon.ru/v2/category/tree",
                 "payload": {}
-            },
-            {
-                "name": "v1/category/tree", 
-                "url": "https://api-seller.ozon.ru/v1/category/tree",
-                "payload": {}
             }
         ]
         
@@ -74,19 +69,20 @@ class OzonSellerAPI:
         
         return working_endpoints
     
-    def get_products_working(self, limit=20):
-        """Получает товары используя рабочие endpoints"""
+    def get_products_with_prices(self, limit=20):
+        """Получает товары с реальными ценами и названиями"""
         working_endpoints = self.test_all_endpoints()
         
         if not working_endpoints:
             print("❌ Нет рабочих endpoints Ozon API")
             return None
         
-        # Пробуем первый рабочий endpoint
+        # Используем endpoint для получения товаров
         endpoint = working_endpoints[0]
         print(f"🔄 Используем endpoint: {endpoint['name']}")
         
         try:
+            # Получаем список товаров
             response = requests.post(
                 endpoint["url"],
                 headers=self.headers,
@@ -95,7 +91,56 @@ class OzonSellerAPI:
             )
             
             if response.status_code == 200:
-                return response.json()
+                products_data = response.json()
+                print(f"✅ Получено товаров: {len(products_data.get('result', {}).get('items', []))}")
+                
+                # Получаем ID товаров для запроса цен
+                product_ids = []
+                for item in products_data.get('result', {}).get('items', []):
+                    product_id = item.get('product_id')
+                    if product_id:
+                        product_ids.append(product_id)
+                
+                print(f"🔍 Запрашиваем цены для {len(product_ids)} товаров...")
+                
+                # Получаем цены товаров
+                prices_response = requests.post(
+                    "https://api-seller.ozon.ru/v1/product/info/prices",
+                    headers=self.headers,
+                    json={
+                        "product_id": product_ids,
+                        "visibility": "ALL"
+                    },
+                    timeout=10
+                )
+                
+                prices_map = {}
+                if prices_response.status_code == 200:
+                    prices_data = prices_response.json()
+                    for price_item in prices_data.get('result', {}).get('items', []):
+                        product_id = price_item.get('product_id')
+                        price = price_item.get('price')
+                        if product_id and price:
+                            prices_map[str(product_id)] = price
+                    print(f"✅ Получены цены для {len(prices_map)} товаров")
+                else:
+                    print(f"❌ Ошибка получения цен: {prices_response.status_code}")
+                
+                # Объединяем данные товаров и цен
+                enhanced_products = []
+                for item in products_data.get('result', {}).get('items', []):
+                    product_id = item.get('product_id')
+                    enhanced_product = {
+                        'product_id': product_id,
+                        'offer_id': item.get('offer_id'),
+                        'name': item.get('name'),
+                        'price': prices_map.get(str(product_id), 0),
+                        'description': item.get('description', ''),
+                        'quantity': item.get('quantity', 0)
+                    }
+                    enhanced_products.append(enhanced_product)
+                
+                return enhanced_products
             else:
                 print(f"❌ Ошибка {endpoint['name']}: {response.status_code}")
                 return None
@@ -117,7 +162,7 @@ def create_demo_products():
     }
 
 async def load_real_products():
-    """Загружает реальные товары из Ozon API"""
+    """Загружает реальные товары с ценами и названиями из Ozon API"""
     global products_cache
     
     print("🔄 Загрузка товаров из Ozon...")
@@ -128,8 +173,8 @@ async def load_real_products():
         products_cache = {}
         return {}
     
-    # Получаем товары через рабочие endpoints
-    products_data = ozon_api.get_products_working(limit=20)
+    # Получаем товары с реальными ценами и названиями
+    products_data = ozon_api.get_products_with_prices(limit=20)
     
     if not products_data:
         print("❌ Не удалось получить товары через Ozon API")
@@ -143,55 +188,49 @@ async def load_real_products():
     products = {}
     product_counter = 1
     
-    # Обрабатываем товары в зависимости от структуры ответа
-    try:
-        # Пробуем разные структуры ответа Ozon API
-        items = []
-        
-        if 'result' in products_data and 'items' in products_data['result']:
-            items = products_data['result']['items']
-        elif 'items' in products_data:
-            items = products_data['items']
-        elif 'products' in products_data:
-            items = products_data['products']
-        else:
-            # Если структура неизвестна, используем весь ответ как список
-            items = [products_data]
-        
-        for item in items:
-            try:
-                # Пробуем разные поля для названия и ID
-                name = item.get('name') or item.get('title') or item.get('product_name') or f'Товар {product_counter}'
-                product_id = item.get('id') or item.get('product_id') or item.get('offer_id') or str(product_counter)
-                offer_id = item.get('offer_id') or item.get('sku') or str(product_counter)
-                
-                # Получаем цену (упрощенно)
-                price = item.get('price') or item.get('current_price') or 1999
-                
-                products[product_counter] = {
-                    'ozon_id': product_id,
-                    'offer_id': offer_id,
-                    'name': name,
-                    'price': price,
-                    'image': "📦",
-                    'description': "Товар из нашего магазина",
-                    'quantity': item.get('quantity', 1) or item.get('stock', 1) or 1
-                }
-                
-                product_counter += 1
-                
-            except Exception as e:
-                print(f"❌ Ошибка обработки товара: {e}")
+    # Обрабатываем товары
+    for item in products_data:
+        try:
+            product_id = item.get('product_id', '')
+            offer_id = item.get('offer_id', '')
+            name = item.get('name', f'Товар {offer_id}')
+            price = item.get('price', 0)
+            description = item.get('description', '')
+            quantity = item.get('quantity', 0)
+            
+            # Пропускаем товары без цены или названия
+            if price == 0 or not name:
+                print(f"⚠️ Пропускаем товар без цены или названия: {name}")
                 continue
-                
-    except Exception as e:
-        print(f"❌ Ошибка разбора ответа Ozon API: {e}")
-        # Создаем демо-товары если не удалось разобрать ответ
-        demo_products = create_demo_products()
-        products_cache = demo_products
-        return demo_products
+            
+            # Формируем описание
+            if description:
+                # Обрезаем длинное описание
+                if len(description) > 150:
+                    description = description[:150] + "..."
+            else:
+                description = f"Артикул: {offer_id}"
+            
+            product_key = product_counter
+            
+            products[product_key] = {
+                'ozon_id': product_id,
+                'offer_id': offer_id,
+                'name': name,
+                'price': price,
+                'image': "📦",
+                'description': description,
+                'quantity': quantity
+            }
+            
+            print(f"📦 Товар {product_counter}: {name} - {price} ₽")
+            product_counter += 1
+            
+        except Exception as e:
+            print(f"❌ Ошибка обработки товара: {e}")
+            continue
     
-    print(f"✅ Загружено {len(products)} товаров из Ozon")
+    print(f"✅ Загружено {len(products)} товаров с реальными ценами и названиями из Ozon")
     products_cache = products
     return products
 
@@ -291,7 +330,7 @@ async def view_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_product(update, context, user_id)
 
 async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int = None, force_update: bool = False):
-    """Показывает текущий товар"""
+    """Показывает текущий товар с реальными данными"""
     if not user_id:
         if update.callback_query:
             user_id = update.callback_query.from_user.id
@@ -347,10 +386,12 @@ async def show_product(update: Update, context: ContextTypes.DEFAULT_TYPE, user_
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # Формируем сообщение с реальными данными
     message_text = (
         f"{product['image']} *{product['name']}*\n\n"
         f"💵 *Цена:* {product['price']} ₽\n"
-        f"📦 *В наличии*\n\n"
+        f"📝 *Описание:* {product['description']}\n"
+        f"📦 *В наличии:* {product['quantity']} шт.\n\n"
         f"✅ *Готов к заказу*\n"
         f"🚚 *Доставка:* Ozon FBS (1-3 дня)\n\n"
         f"🛒 Нажмите 'Добавить в корзину' чтобы заказать!"
