@@ -155,7 +155,7 @@ class OzonSellerAPI:
             print(f"❌ Ошибка получения описаний: {e}")
             return {}
     
-   def _get_products_prices_v5(self, product_ids):
+def _get_products_prices_v5(self, product_ids):
     """Получает цены товаров через v5/product/info/prices"""
     prices_data = {}
     try:
