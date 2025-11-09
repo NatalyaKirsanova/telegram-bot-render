@@ -105,7 +105,7 @@ class OzonSellerAPI:
                 
                 # Получаем цены товаров
                 prices_response = requests.post(
-                    "https://api-seller.ozon.ru/v1/product/info/prices",
+                    "https://api-seller.ozon.ru/v5/product/info/prices",
                     headers=self.headers,
                     json={
                         "product_id": product_ids,
