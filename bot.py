@@ -65,12 +65,9 @@ class OzonSellerAPI:
             print("🔍 Получаем цены через v5/product/info/prices...")
             prices_data = self._get_products_prices_v5(product_ids)
         
-            # 4. Получаем остатки через оба метода
-            print("🔍 Получаем остатки через v1/product/info/stocks-by-warehouse/fbs...")
-            stocks_data_v1 = self._get_products_stocks(product_ids)
-        
-            print("🔍 Получаем остатки через v2/products/stocks...")
-            stocks_data_v2 = self._get_products_stocks_v2(product_ids)
+            # 4. Получаем остатки через v2/product/info/list
+            print("🔍 Получаем остатки через v2/product/info/list...")
+            stocks_data = self._get_products_stocks_simple(product_ids)
         
             # Формируем итоговый список товаров
             products = []
@@ -97,23 +94,9 @@ class OzonSellerAPI:
                         print(f"⚠️ Пропускаем товар без цены: {name}")
                         continue
                 
-                    # Получаем количество - сначала из v1, потом из v2
-                    quantity = 10  # значение по умолчанию
-                
-                    if product_id in stocks_data_v1:
-                        quantity = self._extract_quantity(stocks_data_v1[product_id])
-                        print(f"📦 Количество из v1 для {name}: {quantity}")
-                    elif product_id in stocks_data_v2:
-                        # Для v2 используем поле stock
-                        stock_data = stocks_data_v2[product_id]
-                        if 'stock' in stock_data:
-                            try:
-                                quantity = int(stock_data['stock'])
-                                print(f"📦 Количество из v2 для {name}: {quantity}")
-                            except (ValueError, TypeError):
-                                pass
-                    else:
-                        print(f"⚠️ Не найдены остатки для {name}, используем значение по умолчанию: 10")
+                    # Получаем количество
+                    quantity = self._extract_quantity(stocks_data.get(product_id, {}))
+                    print(f"📦 Итоговое количество для {name}: {quantity}")
                 
                     # Очищаем описание от HTML тегов и обрезаем
                     description = self._clean_description(description)
@@ -245,133 +228,63 @@ class OzonSellerAPI:
         except Exception as e:
             print(f"❌ Ошибка извлечения цены: {e}")
             return 0
-            
-    def _get_products_stocks(self, product_ids):
-        """Получает остатки товаров через v1/product/info/stocks-by-warehouse/fbs"""
+
+    def _get_products_stocks_simple(self, product_ids):
+        """Упрощенный метод получения остатков через v2/product/info/list"""
         stocks_data = {}
         try:
-            # Для этого endpoint нужно использовать offer_id вместо product_id
-            # Сначала получим offer_id для наших product_ids
-            offer_ids = []
-            for product_id in product_ids:
-                # Получаем информацию о товаре чтобы узнать offer_id
-                product_info_response = requests.post(
-                    "https://api-seller.ozon.ru/v2/product/info",
+            # Разбиваем на группы по 50 product_id
+            for i in range(0, len(product_ids), 50):
+                batch_ids = product_ids[i:i+50]
+            
+                # Используем v2/product/info/list который возвращает основную информацию включая stock
+                info_response = requests.post(
+                    "https://api-seller.ozon.ru/v2/product/info/list",
                     headers=self.headers,
                     json={
-                        "product_id": product_id
-                    },
-                    timeout=10
-                )
-            
-                if product_info_response.status_code == 200:
-                    product_info = product_info_response.json()
-                    offer_id = product_info.get('result', {}).get('offer_id')
-                    if offer_id:
-                        offer_ids.append(offer_id)
-                        print(f"🔗 Для product_id {product_id} найден offer_id: {offer_id}")
-                else:
-                    print(f"⚠️ Ошибка получения информации о товаре {product_id}: {product_info_response.status_code}")
-        
-            if not offer_ids:
-                print("❌ Не удалось получить offer_id для запроса остатков")
-                return {}
-        
-            # Разбиваем на группы по 50 offer_id
-            for i in range(0, len(offer_ids), 50):
-                batch_offer_ids = offer_ids[i:i+50]
-            
-                stocks_response = requests.post(
-                    "https://api-seller.ozon.ru/v1/product/info/stocks-by-warehouse/fbs",
-                    headers=self.headers,
-                    json={
-                        "offer_id": batch_offer_ids
-                    },
-                    timeout=10
-                )
-            
-                if stocks_response.status_code == 200:
-                    stocks_result = stocks_response.json()
-                    print(f"📦 Получен ответ от v1/product/info/stocks-by-warehouse/fbs")
-                
-                    # Обрабатываем структуру с массивом result
-                    stock_items = stocks_result.get('result', [])
-                    print(f"📦 Получены остатки FBS для {len(stock_items)} товаров")
-                
-                    for stock_item in stock_items:
-                        product_id = stock_item.get('product_id')
-                        offer_id = stock_item.get('offer_id')
-                        present = stock_item.get('present', 0)
-                        reserved = stock_item.get('reserved', 0)
-                    
-                        if product_id:
-                            # Для каждого товара создаем или обновляем запись
-                            if product_id not in stocks_data:
-                                stocks_data[product_id] = {
-                                    'present': 0,
-                                    'reserved': 0,
-                                    'free_stock': 0
-                                }
-                        
-                            # Суммируем остатки по всем складам FBS
-                            stocks_data[product_id]['present'] += present
-                            stocks_data[product_id]['reserved'] += reserved
-                            stocks_data[product_id]['free_stock'] = max(0, stocks_data[product_id]['present'] - stocks_data[product_id]['reserved'])
-                        
-                            print(f"📦 FBS данные для {product_id} (offer: {offer_id}): present={present}, reserved={reserved}")
-                
-                    # Выводим итоговые суммы по каждому товару
-                    for product_id, data in stocks_data.items():
-                        print(f"📊 ИТОГО FBS для товара {product_id}: present={data['present']}, reserved={data['reserved']}, free_stock={data['free_stock']}")
-                    
-                else:
-                    print(f"⚠️ Ошибка получения остатков FBS: {stocks_response.status_code}")
-                    print(f"Текст ошибки: {stocks_response.text}")
-        
-            return stocks_data
-        
-        except Exception as e:
-            print(f"❌ Ошибка получения остатков FBS: {e}")
-            return {}
-        
-    def _get_products_stocks_v2(self, product_ids):
-        """Альтернативный метод получения остатков через v2/products/stocks"""
-        stocks_data = {}
-        try:
-            # Разбиваем на группы по 100 product_id
-            for i in range(0, len(product_ids), 100):
-                batch_ids = product_ids[i:i+100]
-            
-                stocks_response = requests.post(
-                    "https://api-seller.ozon.ru/v2/products/stocks",
-                    headers=self.headers,
-                    json={
-                        "limit": 1000,
                         "product_id": batch_ids
                     },
                     timeout=10
                 )
             
-                if stocks_response.status_code == 200:
-                    stocks_result = stocks_response.json()
-                    print(f"📦 Получен ответ от v2/products/stocks")
-                    
-                    stock_items = stocks_result.get('stocks', [])
-                    print(f"📦 Получены остатки v2 для {len(stock_items)} товаров")
+                if info_response.status_code == 200:
+                    info_result = info_response.json()
+                    print(f"📦 Получен ответ от v2/product/info/list")
                 
-                    for stock_item in stock_items:
-                        product_id = stock_item.get('product_id')
-                        stock_value = stock_item.get('stock')
-                        if product_id and stock_value is not None:
-                            stocks_data[product_id] = {'stock': stock_value}
-                            print(f"📦 Остатки v2 для товара {product_id}: stock={stock_value}")
+                    items = info_result.get('result', {}).get('items', [])
+                    print(f"📦 Получена информация для {len(items)} товаров")
+                
+                    for item in items:
+                        product_id = item.get('product_id')
+                        if product_id:
+                            # Получаем все возможные поля с остатками
+                            stock = item.get('stock', 0)
+                            fbo_stock = item.get('fbo_stock', 0)
+                            fbs_stock = item.get('fbs_stock', 0)
+                            
+                            # Логируем все значения
+                            print(f"📊 Товар {product_id}: stock={stock}, fbo_stock={fbo_stock}, fbs_stock={fbs_stock}")
+                            
+                            # Выбираем наибольшее доступное количество
+                            available_stock = max(stock, fbo_stock, fbs_stock)
+                            
+                            stocks_data[product_id] = {
+                                'stock': stock,
+                                'fbo_stock': fbo_stock,
+                                'fbs_stock': fbs_stock,
+                                'available_stock': available_stock
+                            }
+                            
+                            print(f"✅ Доступный остаток для {product_id}: {available_stock}")
+                        
                 else:
-                    print(f"⚠️ Ошибка получения остатков v2: {stocks_response.status_code}")
+                    print(f"⚠️ Ошибка получения информации v2: {info_response.status_code}")
+                    print(f"Текст ошибки: {info_response.text}")
         
             return stocks_data
         
         except Exception as e:
-            print(f"❌ Ошибка получения остатков v2: {e}")
+            print(f"❌ Ошибка получения простых остатков: {e}")
             return {}
 
     def _extract_quantity(self, stock_item):
@@ -383,33 +296,20 @@ class OzonSellerAPI:
         
             print(f"🔍 Анализируем структуру остатков: {stock_item}")
         
-            # Способ 1: free_stock - самый надежный показатель (доступно к продаже)
-            if 'free_stock' in stock_item:
-                free_stock = stock_item['free_stock']
-                if free_stock is not None:
+            # Способ 1: available_stock - наш расчетный показатель
+            if 'available_stock' in stock_item:
+                available_stock = stock_item['available_stock']
+                if available_stock is not None:
                     try:
-                        free_stock_int = int(free_stock)
-                        print(f"📊 free_stock: {free_stock_int}")
-                        if free_stock_int >= 0:
-                            print(f"✅ Количество из поля 'free_stock': {free_stock_int}")
-                            return free_stock_int
-                        else:
-                            print(f"⚠️ Отрицательное free_stock: {free_stock_int}, используем 0")
-                            return 0
+                        available_int = int(available_stock)
+                        print(f"📊 available_stock: {available_int}")
+                        if available_int >= 0:
+                            print(f"✅ Количество из поля 'available_stock': {available_int}")
+                            return available_int
                     except (ValueError, TypeError) as e:
-                        print(f"⚠️ Ошибка преобразования free_stock: {e}")
+                        print(f"⚠️ Ошибка преобразования available_stock: {e}")
         
-            # Способ 2: present - reserved (физически на складе минус зарезервировано)
-            if 'present' in stock_item and 'reserved' in stock_item:
-                present = stock_item.get('present', 0)
-                reserved = stock_item.get('reserved', 0)
-                available = max(0, present - reserved)
-                print(f"📊 present: {present}, reserved: {reserved}, available: {available}")
-                if available >= 0:
-                    print(f"✅ Количество из present({present}) - reserved({reserved}) = {available}")
-                    return available
-        
-            # Способ 3: поле stock из простого метода
+            # Способ 2: stock
             if 'stock' in stock_item:
                 stock = stock_item['stock']
                 if stock is not None:
@@ -422,18 +322,31 @@ class OzonSellerAPI:
                     except (ValueError, TypeError) as e:
                         print(f"⚠️ Ошибка преобразования stock: {e}")
         
-            # Способ 4: только present (физически на складе)
-            if 'present' in stock_item:
-                present = stock_item['present']
-                if present is not None:
+            # Способ 3: fbo_stock
+            if 'fbo_stock' in stock_item:
+                fbo_stock = stock_item['fbo_stock']
+                if fbo_stock is not None:
                     try:
-                        present_int = int(present)
-                        print(f"📊 present: {present_int}")
-                        if present_int >= 0:
-                            print(f"✅ Количество из поля 'present': {present_int}")
-                            return present_int
+                        fbo_int = int(fbo_stock)
+                        print(f"📊 fbo_stock: {fbo_int}")
+                        if fbo_int >= 0:
+                            print(f"✅ Количество из поля 'fbo_stock': {fbo_int}")
+                            return fbo_int
                     except (ValueError, TypeError) as e:
-                        print(f"⚠️ Ошибка преобразования present: {e}")
+                        print(f"⚠️ Ошибка преобразования fbo_stock: {e}")
+        
+            # Способ 4: fbs_stock
+            if 'fbs_stock' in stock_item:
+                fbs_stock = stock_item['fbs_stock']
+                if fbs_stock is not None:
+                    try:
+                        fbs_int = int(fbs_stock)
+                        print(f"📊 fbs_stock: {fbs_int}")
+                        if fbs_int >= 0:
+                            print(f"✅ Количество из поля 'fbs_stock': {fbs_int}")
+                            return fbs_int
+                    except (ValueError, TypeError) as e:
+                        print(f"⚠️ Ошибка преобразования fbs_stock: {e}")
         
             print("⚠️ Не удалось определить количество, используем значение по умолчанию: 10")
             return 10  # По умолчанию
