@@ -48,20 +48,17 @@ class OzonSellerAPI:
                 print("❌ Нет товаров в ответе")
                 return None
             
-            # Детальная информация о каждом товаре
-            print("🔍 Детальная информация о товарах:")
-            for i, item in enumerate(items):
-                product_id = item.get('product_id')
-                offer_id = item.get('offer_id')
-                name = item.get('name')
-                print(f"  Товар {i+1}: ID={product_id}, Offer={offer_id}, Name='{name}'")
-            
-            # Получаем ID товаров для запроса цен
+            # Получаем ID товаров для запроса полной информации
             product_ids = []
             for item in items:
                 product_id = item.get('product_id')
                 if product_id:
                     product_ids.append(product_id)
+            
+            print(f"🔍 Запрашиваем полную информацию для {len(product_ids)} товаров через v2/product/info/list...")
+            
+            # Получаем полную информацию о товарах через v2 endpoint
+            products_info = self.get_products_info_v2(product_ids)
             
             print(f"🔍 Запрашиваем цены для {len(product_ids)} товаров через v5/product/info/prices...")
             
@@ -70,10 +67,10 @@ class OzonSellerAPI:
             
             # Объединяем данные товаров и цен
             enhanced_products = []
-            for item in items:
-                product_id = item.get('product_id')
-                offer_id = item.get('offer_id')
-                name = item.get('name')
+            for product_info in products_info:
+                product_id = product_info.get('id')
+                offer_id = product_info.get('offer_id')
+                name = product_info.get('name')
                 
                 # Проверяем наличие названия и offer_id
                 if not name:
@@ -91,9 +88,15 @@ class OzonSellerAPI:
                     print(f"⚠️ Пропускаем товар без цены: {name} (ID: {product_id})")
                     continue
                 
-                description = item.get('description', f'Артикул: {offer_id}')
+                description = product_info.get('description', f'Артикул: {offer_id}')
                 if description and len(description) > 150:
                     description = description[:150] + "..."
+                
+                # Получаем количество из stocks
+                quantity = 0
+                stocks = product_info.get('stocks', {}).get('stocks', [])
+                if stocks:
+                    quantity = sum(stock.get('present', 0) for stock in stocks)
                 
                 enhanced_product = {
                     'product_id': product_id,
@@ -101,10 +104,10 @@ class OzonSellerAPI:
                     'name': name,
                     'price': price_value,
                     'description': description,
-                    'quantity': item.get('quantity', 0)
+                    'quantity': quantity
                 }
                 enhanced_products.append(enhanced_product)
-                print(f"📦 Товар с ценой: {name} - {price_value} ₽")
+                print(f"📦 Товар с ценой: {name} - {price_value} ₽ (В наличии: {quantity} шт.)")
             
             print(f"✅ Обработано {len(enhanced_products)} товаров с ценами")
             return enhanced_products
@@ -112,6 +115,42 @@ class OzonSellerAPI:
         except Exception as e:
             print(f"❌ Ошибка запроса к Ozon API: {e}")
             return None
+    
+    def get_products_info_v2(self, product_ids):
+        """Получает полную информацию о товарах через v2/product/info/list"""
+        print("🔍 Используем v2/product/info/list...")
+        try:
+            info_response = requests.post(
+                "https://api-seller.ozon.ru/v2/product/info/list",
+                headers=self.headers,
+                json={
+                    "product_id": product_ids
+                },
+                timeout=10
+            )
+            
+            if info_response.status_code == 200:
+                info_data = info_response.json()
+                info_items = info_data.get('result', {}).get('items', [])
+                print(f"📊 v2/info: Получена информация для {len(info_items)} товаров")
+                
+                # Детальная информация о каждом товаре
+                print("🔍 Детальная информация о товарах из v2:")
+                for i, item in enumerate(info_items):
+                    product_id = item.get('id')
+                    offer_id = item.get('offer_id')
+                    name = item.get('name')
+                    print(f"  Товар {i+1}: ID={product_id}, Offer={offer_id}, Name='{name}'")
+                
+                return info_items
+            else:
+                print(f"❌ v2/info endpoint ошибка: {info_response.status_code}")
+                print(f"Текст ошибки: {info_response.text}")
+                return []
+                
+        except Exception as e:
+            print(f"❌ Ошибка v2/info endpoint: {e}")
+            return []
     
     def get_prices_v5(self, product_ids):
         """Получает цены через v5/product/info/prices"""
@@ -274,6 +313,8 @@ async def load_real_products():
     products_cache = products
     return products
 
+# ... остальные функции бота остаются без изменений ...
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Приветствие и главное меню"""
     # Получаем пользователя в зависимости от типа update
@@ -338,6 +379,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
     else:
         await update.callback_query.edit_message_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+# ... остальной код бота (view_products, show_product, handle_product_navigation, add_to_cart, show_cart, checkout, show_my_orders, refresh_products, support, handle_callback, main) ...
 
 async def view_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Показывает список товаров"""
