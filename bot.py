@@ -55,9 +55,9 @@ class OzonSellerAPI:
                 if product_id:
                     product_ids.append(product_id)
             
-            print(f"🔍 Запрашиваем полную информацию для {len(product_ids)} товаров через v3/product/info/list...")
+            print(f"🔍 Запрашиваем полную информацию для {len(product_ids)} товаров через v3/product/list...")
             
-            # Получаем полную информацию о товарах через v3/product/info/list
+            # Получаем полную информацию о товарах через v3/product/list
             products_info = self.get_products_info_v3(product_ids)
             
             print(f"🔍 Запрашиваем цены для {len(product_ids)} товаров через v5/product/info/prices...")
@@ -117,11 +117,11 @@ class OzonSellerAPI:
             return None
     
     def get_products_info_v3(self, product_ids):
-        """Получает полную информацию о товарах через v3/product/info/list"""
-        print("🔍 Используем v3/product/info/list...")
+        """Получает полную информацию о товарах через v3/product/list"""
+        print("🔍 Используем v3/product/list...")
         try:
             info_response = requests.post(
-                "https://api-seller.ozon.ru/v3/product/info/list",
+                "https://api-seller.ozon.ru/v3/product/list",
                 headers=self.headers,
                 json={
                     "product_id": product_ids
@@ -132,10 +132,10 @@ class OzonSellerAPI:
             if info_response.status_code == 200:
                 info_data = info_response.json()
                 info_items = info_data.get('result', {}).get('items', [])
-                print(f"📊 v3/info: Получена информация для {len(info_items)} товаров")
+                print(f"📊 v3: Получена информация для {len(info_items)} товаров")
                 
                 # Детальная информация о каждом товаре
-                print("🔍 Детальная информация о товарах из v3/info:")
+                print("🔍 Детальная информация о товарах из v3:")
                 for i, item in enumerate(info_items):
                     product_id = item.get('id')
                     offer_id = item.get('offer_id')
@@ -144,12 +144,12 @@ class OzonSellerAPI:
                 
                 return info_items
             else:
-                print(f"❌ v3/info endpoint ошибка: {info_response.status_code}")
+                print(f"❌ v3 endpoint ошибка: {info_response.status_code}")
                 print(f"Текст ошибки: {info_response.text}")
                 return []
                 
         except Exception as e:
-            print(f"❌ Ошибка v3/info endpoint: {e}")
+            print(f"❌ Ошибка v3 endpoint: {e}")
             return []
     
     def get_prices_v5(self, product_ids):
