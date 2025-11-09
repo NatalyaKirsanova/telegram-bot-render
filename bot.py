@@ -660,7 +660,9 @@ async def checkout(query, context):
         user_orders[user_id] = []
     
     user_orders[user_id].append(order)
-    user_carts[user_id] = {}  # Очищаем корзину
+    
+    # ОЧИЩАЕМ КОРЗИНУ
+    user_carts[user_id] = {}
     
     await query.edit_message_text(
         f"✅ *Заказ оформлен!*\n\n"
