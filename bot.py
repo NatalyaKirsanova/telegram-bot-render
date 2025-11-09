@@ -227,7 +227,7 @@ class OzonSellerAPI:
         except Exception as e:
             print(f"❌ Ошибка извлечения цены: {e}")
             return 0
-    
+            
     def _get_products_stocks(self, product_ids):
         """Получает остатки товаров через v1/product/info/warehouse/stocks"""
         stocks_data = {}
@@ -252,31 +252,36 @@ class OzonSellerAPI:
                     
                     # Обрабатываем структуру с массивом stocks
                     stock_items = stocks_result.get('stocks', [])
-                    print(f"📦 Получены остатки для {len(stock_items)} товаров")
+                    print(f"📦 Получены остатки для {len(stock_items)} записей складов")
                     
                     for stock_item in stock_items:
                         product_id = stock_item.get('product_id')
                         if product_id:
-                            # Если уже есть данные по этому товару, суммируем остатки
-                            if product_id in stocks_data:
-                                existing = stocks_data[product_id]
-                                existing['present'] += stock_item.get('present', 0)
-                                existing['reserved'] += stock_item.get('reserved', 0)
-                                existing['free_stock'] += stock_item.get('free_stock', 0)
-                            else:
+                            # Для каждого товара создаем или обновляем запись
+                            if product_id not in stocks_data:
                                 stocks_data[product_id] = {
-                                    'present': stock_item.get('present', 0),
-                                    'reserved': stock_item.get('reserved', 0),
-                                    'free_stock': stock_item.get('free_stock', 0)
+                                    'present': 0,
+                                    'reserved': 0,
+                                    'free_stock': 0
                                 }
+                        
+                            # Суммируем остатки по всем складам
+                            stocks_data[product_id]['present'] += stock_item.get('present', 0)
+                            stocks_data[product_id]['reserved'] += stock_item.get('reserved', 0)
+                            stocks_data[product_id]['free_stock'] += stock_item.get('free_stock', 0)
                             
-                            print(f"📦 Остатки для товара {product_id}: present={stock_item.get('present')}, reserved={stock_item.get('reserved')}, free_stock={stock_item.get('free_stock')}")
+                            print(f"📦 Складские данные для {product_id}: present={stock_item.get('present')}, reserved={stock_item.get('reserved')}, free_stock={stock_item.get('free_stock')}")
+                
+                    # Выводим итоговые суммы по каждому товару
+                    for product_id, data in stocks_data.items():
+                        print(f"📊 ИТОГО для товара {product_id}: present={data['present']}, reserved={data['reserved']}, free_stock={data['free_stock']}")
+                    
                 else:
                     print(f"⚠️ Ошибка получения остатков v1: {stocks_response.status_code}")
                     print(f"Текст ошибки: {stocks_response.text}")
-            
+        
             return stocks_data
-            
+        
         except Exception as e:
             print(f"❌ Ошибка получения остатков v1: {e}")
             return {}
@@ -287,15 +292,16 @@ class OzonSellerAPI:
             if not stock_item:
                 print("⚠️ Нет данных об остатках, используем значение по умолчанию: 10")
                 return 10  # По умолчанию
-            
+        
             print(f"🔍 Анализируем структуру остатков: {stock_item}")
-            
+        
             # Способ 1: free_stock - самый надежный показатель (доступно к продаже)
             if 'free_stock' in stock_item:
                 free_stock = stock_item['free_stock']
                 if free_stock is not None:
                     try:
                         free_stock_int = int(free_stock)
+                        print(f"📊 free_stock: {free_stock_int}")
                         if free_stock_int >= 0:
                             print(f"✅ Количество из поля 'free_stock': {free_stock_int}")
                             return free_stock_int
@@ -304,35 +310,40 @@ class OzonSellerAPI:
                             return 0
                     except (ValueError, TypeError) as e:
                         print(f"⚠️ Ошибка преобразования free_stock: {e}")
-            
+        
             # Способ 2: present - reserved (физически на складе минус зарезервировано)
             if 'present' in stock_item and 'reserved' in stock_item:
                 present = stock_item.get('present', 0)
                 reserved = stock_item.get('reserved', 0)
                 available = max(0, present - reserved)
+                print(f"📊 present: {present}, reserved: {reserved}, available: {available}")
                 if available >= 0:
                     print(f"✅ Количество из present({present}) - reserved({reserved}) = {available}")
                     return available
-            
+        
             # Способ 3: только present (физически на складе)
             if 'present' in stock_item:
                 present = stock_item['present']
                 if present is not None:
                     try:
                         present_int = int(present)
+                        print(f"📊 present: {present_int}")
                         if present_int >= 0:
                             print(f"✅ Количество из поля 'present': {present_int}")
                             return present_int
-                    except (ValueError, TypeError):
-                        pass
-            
+                    except (ValueError, TypeError) as e:
+                        print(f"⚠️ Ошибка преобразования present: {e}")
+        
             print("⚠️ Не удалось определить количество, используем значение по умолчанию: 10")
             return 10  # По умолчанию
-            
+        
         except Exception as e:
             print(f"❌ Ошибка извлечения количества: {e}")
             print(f"📋 Структура stock_item: {stock_item}")
             return 10
+    
+    
+    
     
     def _clean_description(self, description):
         """Очищает описание от HTML тегов"""
