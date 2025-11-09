@@ -536,7 +536,12 @@ async def add_to_cart(query, context, product_index):
     else:
         cart[product_index] = 1
     
-    await query.answer(f"✅ {product['name']} добавлен в корзину!")
+    # Используем show_alert=True для длинных сообщений
+    product_name = product['name']
+    if len(product_name) > 100:
+        product_name = product_name[:97] + "..."
+    
+    await query.answer(f"✅ {product_name} добавлен в корзину!", show_alert=True)
     await show_product_detail(query, context, product_index)
 
 async def show_cart(query, context):
