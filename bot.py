@@ -239,7 +239,7 @@ class OzonSellerAPI:
                 batch_ids = product_ids[i:i+100]
             
                 stocks_response = requests.post(
-                    "https://api-seller.ozon.ru/v4/products/stocks",
+                    "https://api-seller.ozon.ru/v4/product/info/stocks",
                     headers=self.headers,
                     json={
                         "limit": 1000,
