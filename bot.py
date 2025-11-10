@@ -64,6 +64,10 @@ class OzonSellerAPI:
             # Получаем product_id для запроса описаний
             product_ids = [item['product_id'] for item in items if 'product_id' in item]
             logger.info(f"🔍 Получено {len(product_ids)} product_id")
+
+            # ДОБАВЬТЕ ЭТУ СТРОКУ ДЛЯ ОТЛАДКИ:
+            logger.info("🐛 DEBUG: Запускаем отладку остатков")
+            self.debug_stocks_info(product_ids)
         
             # 2. Получаем описания товаров через v1/product/info/description
             logger.info("🔍 Получаем описания товаров через v1/product/info/description...")
@@ -373,99 +377,92 @@ class OzonSellerAPI:
             return {}
 
     def _extract_quantity(self, stock_item):
-        """Улучшенное извлечение количества из структуры остатков"""
+        """Простое извлечение количества"""
         try:
             if not stock_item:
-                logger.warning("⚠️ Нет данных об остатках, используем значение по умолчанию: 1")
-                return 1  # Более консервативное значение по умолчанию
+                logger.warning("⚠️ Нет данных об остатках, используем 1")
+                return 1
         
-            logger.info(f"🔍 Анализируем структуру остатков: {stock_item}")
+            total_stock = stock_item.get('total_stock', 0)
+            logger.info(f"📊 Извлекаем количество: {total_stock}")
         
-            # Способ 1: total_stock из v3/stocks
-            if 'total_stock' in stock_item:
-                total_stock = stock_item['total_stock']
-                if total_stock is not None:
-                    try:
-                        total_int = int(total_stock)
-                        logger.info(f"📊 total_stock: {total_int}")
-                        if total_int >= 0:
-                            logger.info(f"✅ Количество из поля 'total_stock': {total_int}")
-                            return total_int
-                    except (ValueError, TypeError) as e:
-                        logger.warning(f"⚠️ Ошибка преобразования total_stock: {e}")
-        
-            # Способ 2: available_stock (старая логика)
-            if 'available_stock' in stock_item:
-                available_stock = stock_item['available_stock']
-                if available_stock is not None:
-                    try:
-                        available_int = int(available_stock)
-                        logger.info(f"📊 available_stock: {available_int}")
-                        if available_int >= 0:
-                            logger.info(f"✅ Количество из поля 'available_stock': {available_int}")
-                            return available_int
-                    except (ValueError, TypeError) as e:
-                        logger.warning(f"⚠️ Ошибка преобразования available_stock: {e}")
-        
-            # Способ 3: stock
-            if 'stock' in stock_item:
-                stock = stock_item['stock']
-                if stock is not None:
-                    try:
-                        stock_int = int(stock)
-                        logger.info(f"📊 stock: {stock_int}")
-                        if stock_int >= 0:
-                            logger.info(f"✅ Количество из поля 'stock': {stock_int}")
-                            return stock_int
-                    except (ValueError, TypeError) as e:
-                        logger.warning(f"⚠️ Ошибка преобразования stock: {e}")
-        
-            # Способ 4: fbo_stock
-            if 'fbo_stock' in stock_item:
-                fbo_stock = stock_item['fbo_stock']
-                if fbo_stock is not None:
-                    try:
-                        fbo_int = int(fbo_stock)
-                        logger.info(f"📊 fbo_stock: {fbo_int}")
-                        if fbo_int >= 0:
-                            logger.info(f"✅ Количество из поля 'fbo_stock': {fbo_int}")
-                            return fbo_int
-                    except (ValueError, TypeError) as e:
-                        logger.warning(f"⚠️ Ошибка преобразования fbo_stock: {e}")
-        
-            # Способ 5: fbs_stock
-            if 'fbs_stock' in stock_item:
-                fbs_stock = stock_item['fbs_stock']
-                if fbs_stock is not None:
-                    try:
-                        fbs_int = int(fbs_stock)
-                        logger.info(f"📊 fbs_stock: {fbs_int}")
-                        if fbs_int >= 0:
-                            logger.info(f"✅ Количество из поля 'fbs_stock': {fbs_int}")
-                            return fbs_int
-                    except (ValueError, TypeError) as e:
-                        logger.warning(f"⚠️ Ошибка преобразования fbs_stock: {e}")
-        
-            logger.warning("⚠️ Не удалось определить количество, используем значение по умолчанию: 1")
-            return 1  # Более консервативное значение по умолчанию
+            # Если 0 или отрицательное, возвращаем 1
+            return max(1, total_stock)
     
         except Exception as e:
             logger.error(f"❌ Ошибка извлечения количества: {e}")
-            logger.error(f"📋 Структура stock_item: {stock_item}")
             return 1
 
-    def _clean_description(self, description):
-        """Очищает описание от HTML тегов"""
-        if not description:
-            return ""
+        def _clean_description(self, description):
+            """Очищает описание от HTML тегов"""
+            if not description:
+                return ""
         
-        # Удаляем основные HTML теги
-        clean_text = re.sub(r'<br\s*/?>', '\n', description)  # Заменяем <br> на переносы
-        clean_text = re.sub(r'<[^>]+>', '', clean_text)  # Удаляем все остальные теги
-        clean_text = re.sub(r'\n\s*\n', '\n', clean_text)  # Удаляем лишние переносы
-        clean_text = clean_text.strip()
+            # Удаляем основные HTML теги
+            clean_text = re.sub(r'<br\s*/?>', '\n', description)  # Заменяем <br> на переносы
+            clean_text = re.sub(r'<[^>]+>', '', clean_text)  # Удаляем все остальные теги
+            clean_text = re.sub(r'\n\s*\n', '\n', clean_text)  # Удаляем лишние переносы
+            clean_text = clean_text.strip()
         
-        return clean_text
+            return clean_text
+
+
+
+    def debug_stocks_info(self, product_ids):
+        """Метод для отладки - показывает полную информацию об остатках"""
+        logger.info("🐛 DEBUG: Запуск отладки остатков")
+    
+        # Тестируем разные методы API
+        for product_id in product_ids[:3]:  # Проверим первые 3 товара
+            logger.info(f"🐛 DEBUG: Анализ товара {product_id}")
+        
+            # Метод 1: v3/product/info/stocks
+            try:
+                stocks_response = requests.post(
+                    "https://api-seller.ozon.ru/v3/product/info/stocks",
+                    headers=self.headers,
+                    json={"product_id": [product_id], "limit": 100},
+                    timeout=10
+                )
+                if stocks_response.status_code == 200:
+                    stocks_data = stocks_response.json()
+                    logger.info(f"🐛 DEBUG v3/stocks для {product_id}: {stocks_data}")
+                else:
+                    logger.error(f"🐛 DEBUG v3/stocks ошибка: {stocks_response.status_code}")
+            except Exception as e:
+                logger.error(f"🐛 DEBUG v3/stocks исключение: {e}")
+        
+            # Метод 2: v2/product/info/list
+            try:
+                info_response = requests.post(
+                    "https://api-seller.ozon.ru/v2/product/info/list",
+                    headers=self.headers,
+                    json={"product_id": [product_id]},
+                    timeout=10
+                )
+                if info_response.status_code == 200:
+                    info_data = info_response.json()
+                    logger.info(f"🐛 DEBUG v2/info для {product_id}: {info_data}")
+                else:
+                    logger.error(f"🐛 DEBUG v2/info ошибка: {info_response.status_code}")
+            except Exception as e:
+                logger.error(f"🐛 DEBUG v2/info исключение: {e}")
+        
+            # Метод 3: v1/product/info
+            try:
+                v1_response = requests.post(
+                    "https://api-seller.ozon.ru/v1/product/info",
+                    headers=self.headers,
+                    json={"product_id": product_id},
+                    timeout=10
+                )
+                if v1_response.status_code == 200:
+                    v1_data = v1_response.json()
+                    logger.info(f"🐛 DEBUG v1/info для {product_id}: {v1_data}")
+                else:
+                    logger.error(f"🐛 DEBUG v1/info ошибка: {v1_response.status_code}")
+            except Exception as e:
+                logger.error(f"🐛 DEBUG v1/info исключение: {e}")
 
 # Инициализация API
 ozon_api = OzonSellerAPI()
