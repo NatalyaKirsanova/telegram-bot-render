@@ -267,7 +267,7 @@ class OzonSellerAPI:
                 batch_ids = product_ids[i:i+50]
                 
                 info_response = requests.post(
-                    "https://api-seller.ozon.ru/v1/product/info/stocks-by-warehouse/fbs",
+                    "https://api-seller.ozon.ru/v2/products/stocks",
                     headers=self.headers,
                     json={"product_id": batch_ids},
                     timeout=10
