@@ -369,7 +369,128 @@ class OzonSellerAPI:
         clean_text = clean_text.strip()
         
         return clean_text
+    async def checkout(query, context):
+    """Оформляет заказ и очищает корзину"""
+    # Получаем корзину из user_data
+    cart = context.user_data.get('cart', {})
+    
+    if not cart:
+        await query.answer("❌ Корзина пуста", show_alert=True)
+        return
+    
+    # Считаем общую сумму и количество товаров
+    total = 0
+    items_count = 0
+    
+    for product_index, quantity in cart.items():
+        product = products_cache.get(int(product_index))
+        if product:
+            total += product['price'] * quantity
+            items_count += quantity
+    
+    # Сохраняем заказ в историю
+    if 'orders' not in context.user_data:
+        context.user_data['orders'] = []
+    
+    # Создаем новый заказ
+    new_order = {
+        'total': total,
+        'items_count': items_count,
+        'created_at': datetime.datetime.now().strftime("%d.%m.%Y %H:%M"),
+        'customer_name': query.from_user.first_name,
+        'status': 'оформлен'
+    }
+    
+    context.user_data['orders'].append(new_order)
+    
+    # ВАЖНО: Очищаем корзину
+    context.user_data['cart'] = {}
+    
+    # Показываем подтверждение заказа
+    success_text = f"""
+✅ *Заказ успешно оформлен!*
 
+💰 Сумма заказа: {total} ₽
+📦 Количество товаров: {items_count} шт.
+📅 Дата оформления: {new_order['created_at']}
+👤 Покупатель: {query.from_user.first_name}
+
+Спасибо за покупку! 🎉
+"""
+    
+    keyboard = [
+        [InlineKeyboardButton("📦 Мои заказы", callback_data="view_orders")],
+        [InlineKeyboardButton("🛍️ Продолжить покупки", callback_data="view_products")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(success_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def clear_cart(query, context):
+    """Очищает корзину полностью"""
+    # Очищаем корзину в user_data
+    context.user_data['cart'] = {}
+    
+    # Показываем подтверждение очистки
+    keyboard = [
+        [InlineKeyboardButton("🛍️ Начать покупки", callback_data="view_products")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text("🗑️ *Корзина очищена*", reply_markup=reply_markup, parse_mode='Markdown')
+
+async def refresh_products_callback(query, context):
+    """Обновляет товары через callback"""
+    await query.edit_message_text("🔄 Обновляем список товаров...")
+    
+    # Загружаем актуальные товары
+    products_count_before = len(products_cache)
+    await load_real_products()
+    products_count_after = len(products_cache)
+    
+    if products_count_after > 0:
+        success_text = f"""
+✅ *Товары обновлены!*
+
+📦 Было товаров: {products_count_before}
+📦 Стало товаров: {products_count_after}
+
+Список товаров актуален на текущий момент.
+"""
+        
+        keyboard = [
+            [InlineKeyboardButton("🛍️ Смотреть товары", callback_data="view_products")],
+            [InlineKeyboardButton("🛒 Корзина", callback_data="view_cart")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(success_text, reply_markup=reply_markup, parse_mode='Markdown')
+    else:
+        error_text = """
+❌ *Не удалось обновить товары*
+
+Возможные причины:
+• Проблемы с подключением к Ozon API
+• Неверные настройки API ключей
+• Временные неполадки на стороне Ozon
+
+Попробуйте позже или проверьте настройки.
+"""
+        
+        keyboard = [
+            [InlineKeyboardButton("🔄 Попробовать снова", callback_data="refresh_products")],
+            [InlineKeyboardButton("🛍️ Использовать текущий список", callback_data="view_products")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(error_text, reply_markup=reply_markup, parse_mode='Markdown')
+
+async def handle_cart_action(query, context, callback_data):
+    """Обрабатывает действия с корзиной"""
+    if callback_data == "checkout":
+        await checkout(query, context)
+    elif callback_data == "clear_cart":
+        await clear_cart(query, context)
 
 # Инициализация API
 ozon_api = OzonSellerAPI()
