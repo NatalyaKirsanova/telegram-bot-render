@@ -254,219 +254,147 @@ class OzonSellerAPI:
             logger.error(f"❌ Ошибка извлечения цены: {e}")
             return 0
 
-    
     def _get_products_stocks_v3(self, product_ids):
-    """Основной метод получения остатков через v3/product/info/stocks"""
-        return self._get_products_stocks_simple(product_ids)  # Теперь это основной метод
-
-    
+        """Основной метод получения остатков через v3/product/info/stocks"""
+        return self._get_products_stocks_simple(product_ids)
 
     def _get_products_stocks_simple(self, product_ids):
-    """Улучшенный метод получения остатков через v3/product/info/stocks"""
-    stocks_data = {}
+        """Улучшенный метод получения остатков через v3/product/info/stocks"""
+        stocks_data = {}
     
-    if not product_ids:
-        return stocks_data
+        if not product_ids:
+            return stocks_data
         
-    try:
-        # Используем v3/product/info/stocks для получения точных остатков
-        for i in range(0, len(product_ids), 100):  # Ozon позволяет до 100 товаров в запросе
-            batch_ids = product_ids[i:i+100]
+        try:
+            # Используем v3/product/info/stocks для получения точных остатков
+            for i in range(0, len(product_ids), 100):  # Ozon позволяет до 100 товаров в запросе
+                batch_ids = product_ids[i:i+100]
             
-            stocks_response = requests.post(
-                "https://api-seller.ozon.ru/v3/product/info/stocks",
-                headers=self.headers,
-                json={
-                    "product_id": batch_ids,
-                    "limit": 100
-                },
-                timeout=10
-            )
+                stocks_response = requests.post(
+                    "https://api-seller.ozon.ru/v3/product/info/stocks",
+                    headers=self.headers,
+                    json={
+                        "product_id": batch_ids,
+                        "limit": 100
+                    },
+                    timeout=10
+                )
             
-            if stocks_response.status_code == 200:
-                stocks_result = stocks_response.json()
-                stocks_items = stocks_result.get('result', {}).get('items', [])
-                logger.info(f"📦 Получены остатки для {len(stocks_items)} товаров через v3/stocks")
+                if stocks_response.status_code == 200:
+                    stocks_result = stocks_response.json()
+                    stocks_items = stocks_result.get('result', {}).get('items', [])
+                    logger.info(f"📦 Получены остатки для {len(stocks_items)} товаров через v3/stocks")
                 
-                for item in stocks_items:
-                    product_id = item.get('product_id')
-                    if product_id:
-                        # Получаем общее количество доступное для продажи
-                        total_stock = 0
+                    for item in stocks_items:
+                        product_id = item.get('product_id')
+                        if product_id:
+                            # Получаем общее количество доступное для продажи
+                            total_stock = 0
                         
-                        # Суммируем все доступные остатки
-                        stocks = item.get('stocks', [])
-                        for stock in stocks:
-                            if isinstance(stock, dict):
-                                # available - товары доступные для продажи
-                                available = stock.get('available', 0)
-                                if isinstance(available, int) and available > 0:
-                                    total_stock += available
+                            # Суммируем все доступные остатки
+                            stocks = item.get('stocks', [])
+                            for stock in stocks:
+                                if isinstance(stock, dict):
+                                    # available - товары доступные для продажи
+                                    available = stock.get('available', 0)
+                                    if isinstance(available, int) and available > 0:
+                                        total_stock += available
                         
-                        stocks_data[product_id] = {
-                            'total_stock': total_stock,
-                            'stocks': stocks
-                        }
+                            stocks_data[product_id] = {
+                                'total_stock': total_stock,
+                                'stocks': stocks
+                            }
                         
-                        logger.info(f"✅ Товар {product_id}: доступно {total_stock} шт.")
+                            logger.info(f"✅ Товар {product_id}: доступно {total_stock} шт.")
                         
-            else:
-                logger.warning(f"⚠️ Ошибка получения остатков v3: {stocks_response.status_code}")
-                logger.warning(f"Текст ошибки: {stocks_response.text}")
+                else:
+                    logger.warning(f"⚠️ Ошибка получения остатков v3: {stocks_response.status_code}")
+                    logger.warning(f"Текст ошибки: {stocks_response.text}")
                 
-                # Fallback: используем v2/product/info/list если v3 не работает
-                return self._get_products_stocks_fallback(product_ids)
+                    # Fallback: используем v2/product/info/list если v3 не работает
+                    return self._get_products_stocks_fallback(product_ids)
     
-        return stocks_data
+            return stocks_data
         
-    except Exception as e:
-        logger.error(f"❌ Ошибка получения остатков v3: {e}")
-        # Fallback на старый метод
-        return self._get_products_stocks_fallback(product_ids)
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения остатков v3: {e}")
+            # Fallback на старый метод
+            return self._get_products_stocks_fallback(product_ids)
 
-def _get_products_stocks_fallback(self, product_ids):
-    """Резервный метод получения остатков через v2/product/info/list"""
-    stocks_data = {}
+    def _get_products_stocks_fallback(self, product_ids):
+        """Резервный метод получения остатков через v2/product/info/list"""
+        stocks_data = {}
     
-    try:
-        for i in range(0, len(product_ids), 50):
-            batch_ids = product_ids[i:i+50]
+        try:
+            for i in range(0, len(product_ids), 50):
+                batch_ids = product_ids[i:i+50]
             
-            info_response = requests.post(
-                "https://api-seller.ozon.ru/v2/product/info/list",
-                headers=self.headers,
-                json={"product_id": batch_ids},
-                timeout=10
-            )
+                info_response = requests.post(
+                    "https://api-seller.ozon.ru/v2/product/info/list",
+                    headers=self.headers,
+                    json={"product_id": batch_ids},
+                    timeout=10
+                )
             
-            if info_response.status_code == 200:
-                info_result = info_response.json()
-                items = info_result.get('result', {}).get('items', [])
+                if info_response.status_code == 200:
+                    info_result = info_response.json()
+                    items = info_result.get('result', {}).get('items', [])
                 
-                for item in items:
-                    product_id = item.get('product_id')
-                    if product_id:
-                        # Берем максимальное значение из всех типов остатков
-                        stock = item.get('stock', 0)
-                        fbo_stock = item.get('fbo_stock', 0)
-                        fbs_stock = item.get('fbs_stock', 0)
+                    for item in items:
+                        product_id = item.get('product_id')
+                        if product_id:
+                            # Берем максимальное значение из всех типов остатков
+                            stock = item.get('stock', 0)
+                            fbo_stock = item.get('fbo_stock', 0)
+                            fbs_stock = item.get('fbs_stock', 0)
                         
-                        # Преобразуем в числа
-                        try:
-                            stock = int(stock) if stock else 0
-                            fbo_stock = int(fbo_stock) if fbo_stock else 0
-                            fbs_stock = int(fbs_stock) if fbs_stock else 0
-                        except (ValueError, TypeError):
-                            stock = fbo_stock = fbs_stock = 0
+                            # Преобразуем в числа
+                            try:
+                                stock = int(stock) if stock else 0
+                                fbo_stock = int(fbo_stock) if fbo_stock else 0
+                                fbs_stock = int(fbs_stock) if fbs_stock else 0
+                            except (ValueError, TypeError):
+                                stock = fbo_stock = fbs_stock = 0
                         
-                        # Используем наибольшее значение
-                        total_stock = max(stock, fbo_stock, fbs_stock)
+                            # Используем наибольшее значение
+                            total_stock = max(stock, fbo_stock, fbs_stock)
                         
-                        stocks_data[product_id] = {
-                            'total_stock': total_stock,
-                            'stock': stock,
-                            'fbo_stock': fbo_stock,
-                            'fbs_stock': fbs_stock
-                        }
+                            stocks_data[product_id] = {
+                                'total_stock': total_stock,
+                                'stock': stock,
+                                'fbo_stock': fbo_stock,
+                                'fbs_stock': fbs_stock
+                            }
                         
-        return stocks_data
+            return stocks_data
         
-    except Exception as e:
-        logger.error(f"❌ Ошибка fallback получения остатков: {e}")
-        return {}
-
-def _extract_quantity(self, stock_item):
-    """Улучшенное извлечение количества из структуры остатков"""
-    try:
-        if not stock_item:
-            logger.warning("⚠️ Нет данных об остатках, используем значение по умолчанию: 1")
-            return 1  # Более консервативное значение по умолчанию
-        
-        logger.info(f"🔍 Анализируем структуру остатков: {stock_item}")
-        
-        # Способ 1: total_stock из v3/stocks
-        if 'total_stock' in stock_item:
-            total_stock = stock_item['total_stock']
-            if total_stock is not None:
-                try:
-                    total_int = int(total_stock)
-                    logger.info(f"📊 total_stock: {total_int}")
-                    if total_int >= 0:
-                        logger.info(f"✅ Количество из поля 'total_stock': {total_int}")
-                        return total_int
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"⚠️ Ошибка преобразования total_stock: {e}")
-        
-        # Способ 2: available_stock (старая логика)
-        if 'available_stock' in stock_item:
-            available_stock = stock_item['available_stock']
-            if available_stock is not None:
-                try:
-                    available_int = int(available_stock)
-                    logger.info(f"📊 available_stock: {available_int}")
-                    if available_int >= 0:
-                        logger.info(f"✅ Количество из поля 'available_stock': {available_int}")
-                        return available_int
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"⚠️ Ошибка преобразования available_stock: {e}")
-        
-        # Способ 3: stock
-        if 'stock' in stock_item:
-            stock = stock_item['stock']
-            if stock is not None:
-                try:
-                    stock_int = int(stock)
-                    logger.info(f"📊 stock: {stock_int}")
-                    if stock_int >= 0:
-                        logger.info(f"✅ Количество из поля 'stock': {stock_int}")
-                        return stock_int
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"⚠️ Ошибка преобразования stock: {e}")
-        
-        # Способ 4: fbo_stock
-        if 'fbo_stock' in stock_item:
-            fbo_stock = stock_item['fbo_stock']
-            if fbo_stock is not None:
-                try:
-                    fbo_int = int(fbo_stock)
-                    logger.info(f"📊 fbo_stock: {fbo_int}")
-                    if fbo_int >= 0:
-                        logger.info(f"✅ Количество из поля 'fbo_stock': {fbo_int}")
-                        return fbo_int
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"⚠️ Ошибка преобразования fbo_stock: {e}")
-        
-        # Способ 5: fbs_stock
-        if 'fbs_stock' in stock_item:
-            fbs_stock = stock_item['fbs_stock']
-            if fbs_stock is not None:
-                try:
-                    fbs_int = int(fbs_stock)
-                    logger.info(f"📊 fbs_stock: {fbs_int}")
-                    if fbs_int >= 0:
-                        logger.info(f"✅ Количество из поля 'fbs_stock': {fbs_int}")
-                        return fbs_int
-                except (ValueError, TypeError) as e:
-                    logger.warning(f"⚠️ Ошибка преобразования fbs_stock: {e}")
-        
-        logger.warning("⚠️ Не удалось определить количество, используем значение по умолчанию: 1")
-        return 1  # Более консервативное значение по умолчанию
-    
-    except Exception as e:
-        logger.error(f"❌ Ошибка извлечения количества: {e}")
-        logger.error(f"📋 Структура stock_item: {stock_item}")
-        return 1
+        except Exception as e:
+            logger.error(f"❌ Ошибка fallback получения остатков: {e}")
+            return {}
 
     def _extract_quantity(self, stock_item):
-        """Извлекает количество из структуры остатков"""
+        """Улучшенное извлечение количества из структуры остатков"""
         try:
             if not stock_item:
-                logger.warning("⚠️ Нет данных об остатках, используем значение по умолчанию: 10")
-                return 10  # По умолчанию
+                logger.warning("⚠️ Нет данных об остатках, используем значение по умолчанию: 1")
+                return 1  # Более консервативное значение по умолчанию
         
             logger.info(f"🔍 Анализируем структуру остатков: {stock_item}")
         
-            # Способ 1: available_stock - наш расчетный показатель
+            # Способ 1: total_stock из v3/stocks
+            if 'total_stock' in stock_item:
+                total_stock = stock_item['total_stock']
+                if total_stock is not None:
+                    try:
+                        total_int = int(total_stock)
+                        logger.info(f"📊 total_stock: {total_int}")
+                        if total_int >= 0:
+                            logger.info(f"✅ Количество из поля 'total_stock': {total_int}")
+                            return total_int
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"⚠️ Ошибка преобразования total_stock: {e}")
+        
+            # Способ 2: available_stock (старая логика)
             if 'available_stock' in stock_item:
                 available_stock = stock_item['available_stock']
                 if available_stock is not None:
@@ -479,7 +407,7 @@ def _extract_quantity(self, stock_item):
                     except (ValueError, TypeError) as e:
                         logger.warning(f"⚠️ Ошибка преобразования available_stock: {e}")
         
-            # Способ 2: stock
+            # Способ 3: stock
             if 'stock' in stock_item:
                 stock = stock_item['stock']
                 if stock is not None:
@@ -492,7 +420,7 @@ def _extract_quantity(self, stock_item):
                     except (ValueError, TypeError) as e:
                         logger.warning(f"⚠️ Ошибка преобразования stock: {e}")
         
-            # Способ 3: fbo_stock
+            # Способ 4: fbo_stock
             if 'fbo_stock' in stock_item:
                 fbo_stock = stock_item['fbo_stock']
                 if fbo_stock is not None:
@@ -505,7 +433,7 @@ def _extract_quantity(self, stock_item):
                     except (ValueError, TypeError) as e:
                         logger.warning(f"⚠️ Ошибка преобразования fbo_stock: {e}")
         
-            # Способ 4: fbs_stock
+            # Способ 5: fbs_stock
             if 'fbs_stock' in stock_item:
                 fbs_stock = stock_item['fbs_stock']
                 if fbs_stock is not None:
@@ -518,14 +446,14 @@ def _extract_quantity(self, stock_item):
                     except (ValueError, TypeError) as e:
                         logger.warning(f"⚠️ Ошибка преобразования fbs_stock: {e}")
         
-            logger.warning("⚠️ Не удалось определить количество, используем значение по умолчанию: 10")
-            return 10  # По умолчанию
-        
+            logger.warning("⚠️ Не удалось определить количество, используем значение по умолчанию: 1")
+            return 1  # Более консервативное значение по умолчанию
+    
         except Exception as e:
             logger.error(f"❌ Ошибка извлечения количества: {e}")
             logger.error(f"📋 Структура stock_item: {stock_item}")
-            return 10
-    
+            return 1
+
     def _clean_description(self, description):
         """Очищает описание от HTML тегов"""
         if not description:
