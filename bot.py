@@ -1,9 +1,18 @@
 import os
 import requests
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+import re
 import asyncio
 import datetime
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+
+# Настройка логирования
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 # Токены
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -12,7 +21,6 @@ OZON_CLIENT_ID = os.environ.get('OZON_CLIENT_ID')
 
 # Кэш товаров
 products_cache = {}
-
 current_product_index = {}
 
 class OzonSellerAPI:
@@ -25,11 +33,11 @@ class OzonSellerAPI:
     
     def get_products_with_prices(self, limit=50):
         """Получает реальные товары с реальными ценами из Ozon"""
-        print("🔄 Получение реальных товаров из Ozon API...")
+        logger.info("🔄 Получение реальных товаров из Ozon API...")
         
         try:
             # 1. Получаем список товаров через v3/product/list
-            print("🔍 Получаем список товаров через v3/product/list...")
+            logger.info("🔍 Получаем список товаров через v3/product/list...")
             list_response = requests.post(
                 "https://api-seller.ozon.ru/v3/product/list",
                 headers=self.headers,
@@ -41,32 +49,32 @@ class OzonSellerAPI:
             )
         
             if list_response.status_code != 200:
-                print(f"❌ Ошибка v3/product/list: {list_response.status_code}")
-                print(f"Текст ошибки: {list_response.text}")
+                logger.error(f"❌ Ошибка v3/product/list: {list_response.status_code}")
+                logger.error(f"Текст ошибки: {list_response.text}")
                 return None
         
             list_data = list_response.json()
             items = list_data.get('result', {}).get('items', [])
-            print(f"✅ Получено товаров: {len(items)}")
+            logger.info(f"✅ Получено товаров: {len(items)}")
         
             if not items:
-                print("❌ Нет товаров в ответе")
+                logger.error("❌ Нет товаров в ответе")
                 return None
             
             # Получаем product_id для запроса описаний
             product_ids = [item['product_id'] for item in items if 'product_id' in item]
-            print(f"🔍 Получено {len(product_ids)} product_id")
+            logger.info(f"🔍 Получено {len(product_ids)} product_id")
         
             # 2. Получаем описания товаров через v1/product/info/description
-            print("🔍 Получаем описания товаров через v1/product/info/description...")
+            logger.info("🔍 Получаем описания товаров через v1/product/info/description...")
             descriptions_data = self._get_products_descriptions(product_ids)
         
             # 3. Получаем цены через v5/product/info/prices
-            print("🔍 Получаем цены через v5/product/info/prices...")
+            logger.info("🔍 Получаем цены через v5/product/info/prices...")
             prices_data = self._get_products_prices_v5(product_ids)
         
             # 4. Получаем остатки через v2/product/info/list
-            print("🔍 Получаем остатки через v2/product/info/list...")
+            logger.info("🔍 Получаем остатки через v2/product/info/list...")
             stocks_data = self._get_products_stocks_simple(product_ids)
         
             # Формируем итоговый список товаров
@@ -91,12 +99,12 @@ class OzonSellerAPI:
                     # Получаем цену из v5
                     price = self._extract_price_from_v5(prices_data.get(product_id, {}))
                     if price == 0:
-                        print(f"⚠️ Пропускаем товар без цены: {name}")
+                        logger.warning(f"⚠️ Пропускаем товар без цены: {name}")
                         continue
                 
                     # Получаем количество
                     quantity = self._extract_quantity(stocks_data.get(product_id, {}))
-                    print(f"📦 Итоговое количество для {name}: {quantity}")
+                    logger.info(f"📦 Итоговое количество для {name}: {quantity}")
                 
                     # Очищаем описание от HTML тегов и обрезаем
                     description = self._clean_description(description)
@@ -112,22 +120,32 @@ class OzonSellerAPI:
                         'quantity': quantity
                     })
                     
-                    print(f"📦 {name} - {price} ₽ (Остаток: {quantity})")
+                    logger.info(f"📦 {name} - {price} ₽ (Остаток: {quantity})")
                 
                 except Exception as e:
-                    print(f"❌ Ошибка обработки товара: {e}")
+                    logger.error(f"❌ Ошибка обработки товара: {e}")
                     continue
         
-            print(f"✅ Обработано {len(products)} товаров с реальными ценами")
+            logger.info(f"✅ Обработано {len(products)} товаров с реальными ценами")
             return products
             
+        except requests.exceptions.Timeout:
+            logger.error("❌ Таймаут подключения к Ozon API")
+            return None
+        except requests.exceptions.ConnectionError:
+            logger.error("❌ Ошибка подключения к Ozon API")
+            return None
         except Exception as e:
-            print(f"❌ Ошибка запроса к Ozon API: {e}")
+            logger.error(f"❌ Ошибка запроса к Ozon API: {e}")
             return None
     
     def _get_products_descriptions(self, product_ids):
         """Получает описания товаров через v1/product/info/description"""
         descriptions_data = {}
+        
+        if not product_ids:
+            return descriptions_data
+            
         try:
             # Обрабатываем каждый product_id отдельно
             for product_id in product_ids:
@@ -145,20 +163,24 @@ class OzonSellerAPI:
                             'name': description_result.get('name', ''),
                             'description': description_result.get('description', '')
                         }
-                        print(f"📝 Получено описание для товара {product_id}")
+                        logger.info(f"📝 Получено описание для товара {product_id}")
                 else:
-                    print(f"⚠️ Ошибка получения описания для {product_id}: {description_response.status_code}")
+                    logger.warning(f"⚠️ Ошибка получения описания для {product_id}: {description_response.status_code}")
             
-            print(f"📝 Всего получено описаний: {len(descriptions_data)}")
+            logger.info(f"📝 Всего получено описаний: {len(descriptions_data)}")
             return descriptions_data
             
         except Exception as e:
-            print(f"❌ Ошибка получения описаний: {e}")
+            logger.error(f"❌ Ошибка получения описаний: {e}")
             return {}
     
     def _get_products_prices_v5(self, product_ids):
         """Получает цены товаров через v5/product/info/prices"""
         prices_data = {}
+        
+        if not product_ids:
+            return prices_data
+            
         try:
             # Разбиваем на группы по 50 product_id
             for i in range(0, len(product_ids), 50):
@@ -182,37 +204,40 @@ class OzonSellerAPI:
                     prices_result = prices_response.json()
                     # В v5 items находится в корне ответа
                     price_items = prices_result.get('items', [])
-                    print(f"💰 Получены цены для {len(price_items)} товаров")
+                    logger.info(f"💰 Получены цены для {len(price_items)} товаров")
                 
                     for price_item in price_items:
                         product_id = price_item.get('product_id')
                         prices_data[product_id] = price_item
                         
                 else:
-                    print(f"❌ Ошибка получения цен v5: {prices_response.status_code}")
-                    print(f"Текст ошибки: {prices_response.text}")
+                    logger.error(f"❌ Ошибка получения цен v5: {prices_response.status_code}")
+                    logger.error(f"Текст ошибки: {prices_response.text}")
         
             return prices_data
         
         except Exception as e:
-            print(f"❌ Ошибка получения цен v5: {e}")
+            logger.error(f"❌ Ошибка получения цен v5: {e}")
             return {}
     
     def _extract_price_from_v5(self, price_item):
         """Извлекает цену из структуры Ozon v5"""
-        if not price_item:
+        if not price_item or not isinstance(price_item, dict):
             return 0
     
         try:
             # Прямой доступ к цене по структуре из вашего примера
             price_info = price_item.get('price', {})
+            
+            if not isinstance(price_info, dict):
+                return 0
         
             # Основная цена
             main_price = price_info.get('price')
             if main_price:
                 price_int = int(float(main_price))
                 if price_int > 0:
-                    print(f"✅ Найдена цена: {price_int} ₽")
+                    logger.info(f"✅ Найдена цена: {price_int} ₽")
                     return price_int
         
             # Старая цена как запасной вариант
@@ -220,18 +245,22 @@ class OzonSellerAPI:
             if old_price:
                 price_int = int(float(old_price))
                 if price_int > 0:
-                    print(f"✅ Найдена старая цена: {price_int} ₽")
+                    logger.info(f"✅ Найдена старая цена: {price_int} ₽")
                     return price_int
         
             return 0
         
         except Exception as e:
-            print(f"❌ Ошибка извлечения цены: {e}")
+            logger.error(f"❌ Ошибка извлечения цены: {e}")
             return 0
 
     def _get_products_stocks_simple(self, product_ids):
         """Упрощенный метод получения остатков через v2/product/info/list"""
         stocks_data = {}
+        
+        if not product_ids:
+            return stocks_data
+            
         try:
             # Разбиваем на группы по 50 product_id
             for i in range(0, len(product_ids), 50):
@@ -249,10 +278,10 @@ class OzonSellerAPI:
             
                 if info_response.status_code == 200:
                     info_result = info_response.json()
-                    print(f"📦 Получен ответ от v2/product/info/list")
+                    logger.info(f"📦 Получен ответ от v2/product/info/list")
                 
                     items = info_result.get('result', {}).get('items', [])
-                    print(f"📦 Получена информация для {len(items)} товаров")
+                    logger.info(f"📦 Получена информация для {len(items)} товаров")
                 
                     for item in items:
                         product_id = item.get('product_id')
@@ -263,7 +292,7 @@ class OzonSellerAPI:
                             fbs_stock = item.get('fbs_stock', 0)
                             
                             # Логируем все значения
-                            print(f"📊 Товар {product_id}: stock={stock}, fbo_stock={fbo_stock}, fbs_stock={fbs_stock}")
+                            logger.info(f"📊 Товар {product_id}: stock={stock}, fbo_stock={fbo_stock}, fbs_stock={fbs_stock}")
                             
                             # Выбираем наибольшее доступное количество
                             available_stock = max(stock, fbo_stock, fbs_stock)
@@ -275,26 +304,26 @@ class OzonSellerAPI:
                                 'available_stock': available_stock
                             }
                             
-                            print(f"✅ Доступный остаток для {product_id}: {available_stock}")
+                            logger.info(f"✅ Доступный остаток для {product_id}: {available_stock}")
                         
                 else:
-                    print(f"⚠️ Ошибка получения информации v2: {info_response.status_code}")
-                    print(f"Текст ошибки: {info_response.text}")
+                    logger.warning(f"⚠️ Ошибка получения информации v2: {info_response.status_code}")
+                    logger.warning(f"Текст ошибки: {info_response.text}")
         
             return stocks_data
         
         except Exception as e:
-            print(f"❌ Ошибка получения простых остатков: {e}")
+            logger.error(f"❌ Ошибка получения простых остатков: {e}")
             return {}
 
     def _extract_quantity(self, stock_item):
         """Извлекает количество из структуры остатков"""
         try:
             if not stock_item:
-                print("⚠️ Нет данных об остатках, используем значение по умолчанию: 10")
+                logger.warning("⚠️ Нет данных об остатках, используем значение по умолчанию: 10")
                 return 10  # По умолчанию
         
-            print(f"🔍 Анализируем структуру остатков: {stock_item}")
+            logger.info(f"🔍 Анализируем структуру остатков: {stock_item}")
         
             # Способ 1: available_stock - наш расчетный показатель
             if 'available_stock' in stock_item:
@@ -302,12 +331,12 @@ class OzonSellerAPI:
                 if available_stock is not None:
                     try:
                         available_int = int(available_stock)
-                        print(f"📊 available_stock: {available_int}")
+                        logger.info(f"📊 available_stock: {available_int}")
                         if available_int >= 0:
-                            print(f"✅ Количество из поля 'available_stock': {available_int}")
+                            logger.info(f"✅ Количество из поля 'available_stock': {available_int}")
                             return available_int
                     except (ValueError, TypeError) as e:
-                        print(f"⚠️ Ошибка преобразования available_stock: {e}")
+                        logger.warning(f"⚠️ Ошибка преобразования available_stock: {e}")
         
             # Способ 2: stock
             if 'stock' in stock_item:
@@ -315,12 +344,12 @@ class OzonSellerAPI:
                 if stock is not None:
                     try:
                         stock_int = int(stock)
-                        print(f"📊 stock: {stock_int}")
+                        logger.info(f"📊 stock: {stock_int}")
                         if stock_int >= 0:
-                            print(f"✅ Количество из поля 'stock': {stock_int}")
+                            logger.info(f"✅ Количество из поля 'stock': {stock_int}")
                             return stock_int
                     except (ValueError, TypeError) as e:
-                        print(f"⚠️ Ошибка преобразования stock: {e}")
+                        logger.warning(f"⚠️ Ошибка преобразования stock: {e}")
         
             # Способ 3: fbo_stock
             if 'fbo_stock' in stock_item:
@@ -328,12 +357,12 @@ class OzonSellerAPI:
                 if fbo_stock is not None:
                     try:
                         fbo_int = int(fbo_stock)
-                        print(f"📊 fbo_stock: {fbo_int}")
+                        logger.info(f"📊 fbo_stock: {fbo_int}")
                         if fbo_int >= 0:
-                            print(f"✅ Количество из поля 'fbo_stock': {fbo_int}")
+                            logger.info(f"✅ Количество из поля 'fbo_stock': {fbo_int}")
                             return fbo_int
                     except (ValueError, TypeError) as e:
-                        print(f"⚠️ Ошибка преобразования fbo_stock: {e}")
+                        logger.warning(f"⚠️ Ошибка преобразования fbo_stock: {e}")
         
             # Способ 4: fbs_stock
             if 'fbs_stock' in stock_item:
@@ -341,19 +370,19 @@ class OzonSellerAPI:
                 if fbs_stock is not None:
                     try:
                         fbs_int = int(fbs_stock)
-                        print(f"📊 fbs_stock: {fbs_int}")
+                        logger.info(f"📊 fbs_stock: {fbs_int}")
                         if fbs_int >= 0:
-                            print(f"✅ Количество из поля 'fbs_stock': {fbs_int}")
+                            logger.info(f"✅ Количество из поля 'fbs_stock': {fbs_int}")
                             return fbs_int
                     except (ValueError, TypeError) as e:
-                        print(f"⚠️ Ошибка преобразования fbs_stock: {e}")
+                        logger.warning(f"⚠️ Ошибка преобразования fbs_stock: {e}")
         
-            print("⚠️ Не удалось определить количество, используем значение по умолчанию: 10")
+            logger.warning("⚠️ Не удалось определить количество, используем значение по умолчанию: 10")
             return 10  # По умолчанию
         
         except Exception as e:
-            print(f"❌ Ошибка извлечения количества: {e}")
-            print(f"📋 Структура stock_item: {stock_item}")
+            logger.error(f"❌ Ошибка извлечения количества: {e}")
+            logger.error(f"📋 Структура stock_item: {stock_item}")
             return 10
     
     def _clean_description(self, description):
@@ -362,14 +391,17 @@ class OzonSellerAPI:
             return ""
         
         # Удаляем основные HTML теги
-        import re
         clean_text = re.sub(r'<br\s*/?>', '\n', description)  # Заменяем <br> на переносы
         clean_text = re.sub(r'<[^>]+>', '', clean_text)  # Удаляем все остальные теги
         clean_text = re.sub(r'\n\s*\n', '\n', clean_text)  # Удаляем лишние переносы
         clean_text = clean_text.strip()
         
         return clean_text
-    async def checkout(query, context):
+
+# Инициализация API
+ozon_api = OzonSellerAPI()
+
+async def checkout(query, context):
     """Оформляет заказ и очищает корзину"""
     # Получаем корзину из user_data
     cart = context.user_data.get('cart', {})
@@ -492,18 +524,15 @@ async def handle_cart_action(query, context, callback_data):
     elif callback_data == "clear_cart":
         await clear_cart(query, context)
 
-# Инициализация API
-ozon_api = OzonSellerAPI()
-
 async def load_real_products():
     """Загружает только реальные товары из Ozon API"""
     global products_cache
     
-    print("🔄 Загрузка реальных товаров из Ozon...")
+    logger.info("🔄 Загрузка реальных товаров из Ozon...")
     
     # Проверяем наличие API ключей
     if not OZON_CLIENT_ID or not OZON_API_KEY:
-        print("❌ API ключи не настроены!")
+        logger.error("❌ API ключи не настроены!")
         products_cache = {}
         return {}
     
@@ -511,7 +540,7 @@ async def load_real_products():
     products_data = ozon_api.get_products_with_prices(limit=50)
     
     if not products_data:
-        print("❌ Не удалось получить реальные товары через Ozon API")
+        logger.error("❌ Не удалось получить реальные товары через Ozon API")
         products_cache = {}
         return {}
     
@@ -548,14 +577,14 @@ async def load_real_products():
                 'quantity': quantity
             }
             
-            print(f"✅ Товар {product_counter}: {name} - {price} ₽ (Остаток: {quantity})")
+            logger.info(f"✅ Товар {product_counter}: {name} - {price} ₽ (Остаток: {quantity})")
             product_counter += 1
             
         except Exception as e:
-            print(f"❌ Ошибка обработки товара: {e}")
+            logger.error(f"❌ Ошибка обработки товара: {e}")
             continue
     
-    print(f"🎯 Загружено {len(products)} реальных товаров с реальными ценами из Ozon")
+    logger.info(f"🎯 Загружено {len(products)} реальных товаров с реальными ценами из Ozon")
     products_cache = products
     return products
 
@@ -632,8 +661,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_product_action(query, context, callback_data)
     elif callback_data.startswith("cart_"):
         await handle_cart_action(query, context, callback_data)
-
-
 
 async def show_products(query, context):
     """Показывает список реальных товаров"""
@@ -764,7 +791,6 @@ async def show_cart(query, context):
     
     await query.edit_message_text(cart_text, reply_markup=reply_markup, parse_mode='Markdown')      
 
-  
 async def show_orders(query, context):
     """Показывает заказы пользователя"""
     # Получаем заказы из user_data
@@ -804,21 +830,19 @@ async def show_orders(query, context):
     
     await query.edit_message_text(orders_text, reply_markup=reply_markup, parse_mode='Markdown')
 
-
-
 async def preload_products():
     """Предзагрузка товаров при запуске"""
-    print("🔄 Предзагрузка реальных товаров...")
+    logger.info("🔄 Предзагрузка реальных товаров...")
     await load_real_products()
     if products_cache:
-        print(f"✅ Загружено {len(products_cache)} реальных товаров")
+        logger.info(f"✅ Загружено {len(products_cache)} реальных товаров")
     else:
-        print("❌ Не удалось загрузить реальные товары")
+        logger.error("❌ Не удалось загрузить реальные товары")
 
 def main():
     """Запуск бота"""
     if not BOT_TOKEN:
-        print("❌ BOT_TOKEN не найден!")
+        logger.error("❌ BOT_TOKEN не найден!")
         return
     
     application = Application.builder().token(BOT_TOKEN).build()
@@ -828,15 +852,14 @@ def main():
     application.add_handler(CommandHandler("refresh", refresh_products))
     application.add_handler(CallbackQueryHandler(handle_callback))
     
-       
     # Предзагрузка реальных товаров
-    print("🔄 Загрузка реальных товаров из Ozon...")
+    logger.info("🔄 Загрузка реальных товаров из Ozon...")
     
     # Запускаем предзагрузку асинхронно
     loop = asyncio.get_event_loop()
     loop.run_until_complete(preload_products())
     
-    print("🛍️ Ozon Client Bot запущен!")
+    logger.info("🛍️ Ozon Client Bot запущен!")
     application.run_polling()
 
 if __name__ == '__main__':
