@@ -707,10 +707,7 @@ def main():
     application.add_handler(CommandHandler("refresh", refresh_products))
     application.add_handler(CallbackQueryHandler(handle_callback))
     
-    # Добавляем обработчик текстовых сообщений для контактов
-    from telegram.ext import MessageHandler, filters
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_contacts))
-    
+       
     # Предзагрузка реальных товаров
     print("🔄 Загрузка реальных товаров из Ozon...")
     
