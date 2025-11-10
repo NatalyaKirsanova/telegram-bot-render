@@ -75,7 +75,7 @@ class OzonSellerAPI:
         
             # 4. Получаем остатки через v4/product/info/prices (альтернативный метод)
             logger.info("🔍 Получаем остатки через альтернативный метод...")
-            stocks_data = self._get_products_stocks_alternative(product_ids)
+            s_data = self._get_products_stocks_alternative(product_ids)
         
             # Формируем итоговый список товаров
             products = []
@@ -267,7 +267,7 @@ class OzonSellerAPI:
                 batch_ids = product_ids[i:i+50]
                 
                 info_response = requests.post(
-                    "https://api-seller.ozon.ru/v2/product/info/list",
+                    "https://api-seller.ozon.ru/v1/product/info/stocks-by-warehouse/fbs",
                     headers=self.headers,
                     json={"product_id": batch_ids},
                     timeout=10
