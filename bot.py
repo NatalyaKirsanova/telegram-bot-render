@@ -2,7 +2,7 @@ import os
 import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Токены из переменных окружения Render
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -39,6 +39,17 @@ def format_time(time_str):
         return dt.strftime("%H:%M")
     except:
         return time_str
+
+def format_date(date_str):
+    """Форматирование даты в читаемый вид"""
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        days = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+        months = ["янв", "фев", "мар", "апр", "мая", "июн", 
+                 "июл", "авг", "сен", "окт", "ноя", "дек"]
+        return f"{dt.day} {months[dt.month-1]} ({days[dt.weekday()]})"
+    except:
+        return date_str
 
 def hpa_to_mmhg(pressure_hpa):
     """Конвертирует давление из гПа в мм рт. ст."""
@@ -126,12 +137,23 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             'dt': 'today'
         }
         
+        # Получаем прогноз на 2 дня (сегодня и завтра)
+        forecast_url = "http://api.weatherapi.com/v1/forecast.json"
+        forecast_params = {
+            'key': WEATHER_API_KEY,
+            'q': city,
+            'days': 2,
+            'lang': 'ru'
+        }
+        
         # Делаем основные запросы
         current_response = requests.get(current_url, params=current_params, timeout=10)
         astronomy_response = requests.get(astronomy_url, params=astronomy_params, timeout=10)
+        forecast_response = requests.get(forecast_url, params=forecast_params, timeout=10)
         
         current_data = current_response.json()
         astronomy_data = astronomy_response.json()
+        forecast_data = forecast_response.json()
         
         if 'error' in current_data:
             error_message = current_data['error']['message']
@@ -153,9 +175,10 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Конвертируем давление в мм рт. ст.
         pressure_mmhg = hpa_to_mmhg(current['pressure_mb'])
         
-        # Формируем базовый текст с погодой
+        # Формируем базовый текст с текущей погодой
         weather_text = (
-            f"🌍 {location['name']}, {location['country']}\n"
+            f"🌍 {location['name']}, {location['country']}\n\n"
+            f"📅 **СЕГОДНЯ**\n"
             f"🌡️ Температура: {current['temp_c']}°C\n"
             f"💭 Ощущается как: {current['feelslike_c']}°C\n"
             f"📝 {current['condition']['text']}\n"
@@ -166,6 +189,31 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"🌅 Восход: {format_time(astronomy['sunrise'])}\n"
             f"🌇 Закат: {format_time(astronomy['sunset'])}"
         )
+        
+        # Добавляем прогноз на завтра
+        if 'error' not in forecast_data and 'forecast' in forecast_data:
+            forecast_days = forecast_data['forecast']['forecastday']
+            if len(forecast_days) > 1:
+                tomorrow = forecast_days[1]
+                tomorrow_astro = tomorrow['astro']
+                tomorrow_day = tomorrow['day']
+                
+                # Конвертируем давление для завтра
+                tomorrow_pressure_mmhg = hpa_to_mmhg(tomorrow_day['avgvis_km']) if tomorrow_day.get('avgvis_km') else hpa_to_mmhg(tomorrow_day.get('avghumidity', 1013))
+                
+                forecast_text = (
+                    f"\n\n📅 **ЗАВТРА** ({format_date(tomorrow['date'])})\n"
+                    f"🌡️ Макс: {tomorrow_day['maxtemp_c']}°C\n"
+                    f"🌡️ Мин: {tomorrow_day['mintemp_c']}°C\n"
+                    f"📝 {tomorrow_day['condition']['text']}\n"
+                    f"💧 Влажность: {tomorrow_day['avghumidity']}%\n"
+                    f"🌬️ Ветер: {tomorrow_day['maxwind_kph']} км/ч\n"
+                    f"🌧️ Вероятность дождя: {tomorrow_day['daily_chance_of_rain']}%\n"
+                    f"❄️ Вероятность снега: {tomorrow_day['daily_chance_of_snow']}%\n"
+                    f"🌅 Восход: {format_time(tomorrow_astro['sunrise'])}\n"
+                    f"🌇 Закат: {format_time(tomorrow_astro['sunset'])}"
+                )
+                weather_text += forecast_text
         
         # Пытаемся получить marine данные
         try:
