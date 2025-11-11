@@ -40,6 +40,10 @@ def format_time(time_str):
     except:
         return time_str
 
+def hpa_to_mmhg(pressure_hpa):
+    """Конвертирует давление из гПа в мм рт. ст."""
+    return round(pressure_hpa * 0.750062, 1)
+
 def get_wave_height_description(wave_height_m):
     """Получить описание высоты волн"""
     if wave_height_m < 0.3:
@@ -146,6 +150,9 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Парсим астрономические данные
         astronomy = astronomy_data['astronomy']['astro']
         
+        # Конвертируем давление в мм рт. ст.
+        pressure_mmhg = hpa_to_mmhg(current['pressure_mb'])
+        
         # Формируем базовый текст с погодой
         weather_text = (
             f"🌍 {location['name']}, {location['country']}\n"
@@ -154,7 +161,7 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"📝 {current['condition']['text']}\n"
             f"💧 Влажность: {current['humidity']}%\n"
             f"🌬️ Ветер: {current['wind_kph']} км/ч\n"
-            f"📊 Давление: {current['pressure_mb']} гПа\n"
+            f"📊 Давление: {pressure_mmhg} мм рт. ст.\n"
             f"🌫️ Видимость: {current['vis_km']} км\n"
             f"🌅 Восход: {format_time(astronomy['sunrise'])}\n"
             f"🌇 Закат: {format_time(astronomy['sunset'])}"
