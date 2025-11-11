@@ -53,6 +53,19 @@ def get_wave_height_description(wave_height_m):
     else:
         return "🔴 Очень сильное волнение"
 
+def is_valid_marine_data(wave_height_m, wave_period, wave_direction):
+    """Проверяет, являются ли морские данные корректными"""
+    # Если высота волн очень маленькая (меньше 0.1м) и период очень маленький,
+    # вероятно, это данные по умолчанию для материкового города
+    if wave_height_m < 0.1 and wave_period < 0.5:
+        return False
+    
+    # Если все значения нулевые или близкие к нулю
+    if wave_height_m <= 0.1 and wave_period <= 0.1 and wave_direction == 0:
+        return False
+    
+    return True
+
 async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка сообщений с названием города"""
     city = update.message.text.strip()
@@ -117,6 +130,7 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         
         # Пытаемся получить данные о волнах (дополнительная информация)
+        marine_data_available = False
         try:
             marine_url = "http://api.weatherapi.com/v1/marine.json"
             marine_params = {
@@ -137,14 +151,17 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     wave_period = current_hour_data.get('swell_period_secs', 0)
                     wave_direction = current_hour_data.get('swell_direction_deg', 0)
                     
-                    wave_info = (
-                        f"\n\n🌊 **Морские условия:**\n"
-                        f"📏 Высота волн: {wave_height_m:.1f} м\n"
-                        f"⏱️ Период волн: {wave_period:.1f} сек\n"
-                        f"🧭 Направление: {wave_direction}°\n"
-                        f"📋 {get_wave_height_description(wave_height_m)}"
-                    )
-                    weather_text += wave_info
+                    # Проверяем, являются ли данные корректными
+                    if is_valid_marine_data(wave_height_m, wave_period, wave_direction):
+                        wave_info = (
+                            f"\n\n🌊 **Морские условия:**\n"
+                            f"📏 Высота волн: {wave_height_m:.1f} м\n"
+                            f"⏱️ Период волн: {wave_period:.1f} сек\n"
+                            f"🧭 Направление: {wave_direction}°\n"
+                            f"📋 {get_wave_height_description(wave_height_m)}"
+                        )
+                        weather_text += wave_info
+                        marine_data_available = True
                 
         except requests.exceptions.Timeout:
             # Игнорируем таймаут для морских данных - это не критично
@@ -152,6 +169,10 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         except Exception as e:
             # Игнорируем ошибки получения морских данных
             pass
+        
+        # Добавляем информацию о доступности морских данных
+        if not marine_data_available:
+            weather_text += "\n\n🌊 Морские условия: не доступны для этой локации"
         
         await update.message.reply_text(weather_text)
             
