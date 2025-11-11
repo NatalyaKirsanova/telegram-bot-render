@@ -4,9 +4,10 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from datetime import datetime
 
-# Токены из переменных окружения Render
+# Токены из переменных окружения Railway
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 WEATHER_API_KEY = os.environ.get('WEATHER_API_KEY')
+PORT = int(os.environ.get('PORT', 8443))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /start"""
@@ -56,45 +57,27 @@ def get_wave_height_description(wave_height_m):
 def should_show_marine_data(marine_data, city_name):
     """Определяет, нужно ли показывать данные о волнах"""
     try:
-        # Для отладки выведем что приходит
-        print(f"Marine data for {city_name}: {marine_data}")
-        
-        if 'error' in marine_data:
-            print(f"Marine API error: {marine_data['error']}")
-            return False
-            
-        if 'forecast' not in marine_data:
-            print("No forecast in marine data")
+        if 'error' in marine_data or 'forecast' not in marine_data:
             return False
             
         marine_forecast = marine_data['forecast']['forecastday'][0]
         if 'hour' not in marine_forecast or len(marine_forecast['hour']) == 0:
-            print("No hour data in marine forecast")
             return False
         
         current_hour = marine_forecast['hour'][0]
         wave_height = current_hour.get('sig_ht_mt', 0)
         wave_period = current_hour.get('swell_period_secs', 0)
-        wave_direction = current_hour.get('swell_direction_deg', 0)
         
-        print(f"Wave data - height: {wave_height}m, period: {wave_period}s, direction: {wave_direction}°")
-        
-        # ОЧЕНЬ ПРОСТАЯ ПРОВЕРКА: только для Москвы не показываем
+        # Для известных материковых городов - никогда не показываем волны
         inland_cities = ['москва', 'moscow']
         
         if city_name.lower() in inland_cities:
-            print(f"{city_name} is inland city - skipping marine data")
             return False
             
         # Для всех остальных городов показываем волны если есть какие-то данные
-        # (даже если они маленькие - возможно это реальные данные для спокойного моря)
-        has_wave_data = wave_height > 0 or wave_period > 0
+        return wave_height > 0 or wave_period > 0
         
-        print(f"Should show marine data for {city_name}: {has_wave_data}")
-        return has_wave_data
-        
-    except Exception as e:
-        print(f"Error in should_show_marine_data: {e}")
+    except Exception:
         return False
 
 async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -169,7 +152,6 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 'days': 1
             }
             
-            print(f"Requesting marine data for: {city}")
             marine_response = requests.get(marine_url, params=marine_params, timeout=5)
             marine_data = marine_response.json()
             
@@ -189,13 +171,11 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"📋 {get_wave_height_description(wave_height_m)}"
                 )
                 weather_text += wave_info
-            else:
-                print(f"Not showing marine data for {city}")
             
         except requests.exceptions.Timeout:
-            print(f"Marine API timeout for {city}")
+            pass
         except Exception as e:
-            print(f"Marine API error for {city}: {e}")
+            pass
         
         await update.message.reply_text(weather_text)
             
@@ -204,7 +184,6 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     except requests.exceptions.RequestException as e:
         await update.message.reply_text("❌ Ошибка соединения с сервером погоды")
     except Exception as e:
-        print(f"Ошибка: {e}")  # Для отладки
         await update.message.reply_text("❌ Ошибка при получении погоды. Попробуйте другой город или позже.")
 
 def main():
@@ -216,6 +195,7 @@ def main():
     if not WEATHER_API_KEY:
         print("⚠️ WEATHER_API_KEY не найден. Бот будет работать без погоды.")
     
+    # Создаем приложение
     application = Application.builder().token(BOT_TOKEN).build()
     
     # Обработчики команд
@@ -226,7 +206,23 @@ def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_city_message))
     
     print("🌤️ Бот погоды запущен!")
-    application.run_polling()
+    
+    # На Railway лучше использовать webhook, но если хотим polling:
+    try:
+        # Очищаем предыдущие обновления и запускаем
+        application.bot.delete_webhook(drop_pending_updates=True)
+        print("✅ Webhook удален, запускаем polling...")
+        application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES,
+            timeout=30  # Увеличиваем таймаут
+        )
+    except Exception as e:
+        print(f"❌ Ошибка при запуске: {e}")
+        print("🔄 Перезапуск через 10 секунд...")
+        import time
+        time.sleep(10)
+        main()
 
 if __name__ == '__main__':
     main()
