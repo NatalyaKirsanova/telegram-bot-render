@@ -40,6 +40,19 @@ def format_time(time_str):
     except:
         return time_str
 
+def get_wave_height_description(wave_height_m):
+    """Получить описание высоты волн"""
+    if wave_height_m < 0.3:
+        return "🟢 Спокойное море"
+    elif wave_height_m < 0.6:
+        return "🟡 Легкое волнение"
+    elif wave_height_m < 1.2:
+        return "🟠 Умеренное волнение"
+    elif wave_height_m < 2.5:
+        return "🟣 Сильное волнение"
+    else:
+        return "🔴 Очень сильное волнение"
+
 async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка сообщений с названием города"""
     city = update.message.text.strip()
@@ -65,12 +78,22 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             'dt': 'today'  # данные на сегодня
         }
         
-        # Делаем запросы параллельно
+        # Получаем данные о морской погоде (волны)
+        marine_url = "http://api.weatherapi.com/v1/marine.json"
+        marine_params = {
+            'key': WEATHER_API_KEY,
+            'q': city,
+            'days': 1  # данные на 1 день
+        }
+        
+        # Делаем запросы
         current_response = requests.get(current_url, params=current_params, timeout=10)
         astronomy_response = requests.get(astronomy_url, params=astronomy_params, timeout=10)
+        marine_response = requests.get(marine_url, params=marine_params, timeout=10)
         
         current_data = current_response.json()
         astronomy_data = astronomy_response.json()
+        marine_data = marine_response.json()
         
         if 'error' not in current_data and 'error' not in astronomy_data:
             # Парсим данные о текущей погоде
@@ -80,6 +103,7 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
             # Парсим астрономические данные
             astronomy = astronomy_data['astronomy']['astro']
             
+            # Формируем базовый текст с погодой
             weather_text = (
                 f"🌍 {location['name']}, {location['country']}\n"
                 f"🌡️ Температура: {current['temp_c']}°C\n"
@@ -92,6 +116,28 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"🌅 Восход: {format_time(astronomy['sunrise'])}\n"
                 f"🌇 Закат: {format_time(astronomy['sunset'])}"
             )
+            
+            # Добавляем информацию о волнах, если доступна
+            if 'error' not in marine_data and 'forecast' in marine_data:
+                marine_forecast = marine_data['forecast']['forecastday'][0]
+                if 'hour' in marine_forecast and len(marine_forecast['hour']) > 0:
+                    # Берем данные о волнах для текущего часа
+                    current_hour_data = marine_forecast['hour'][0]
+                    wave_height_m = current_hour_data['sig_ht_mt']
+                    wave_period = current_hour_data['swell_period_secs']
+                    wave_direction = current_hour_data['swell_direction_deg']
+                    
+                    wave_info = (
+                        f"\n🌊 Высота волн: {wave_height_m:.1f} м\n"
+                        f"📏 Период волн: {wave_period:.1f} сек\n"
+                        f"🧭 Направление: {wave_direction}°\n"
+                        f"📋 {get_wave_height_description(wave_height_m)}"
+                    )
+                    weather_text += wave_info
+                else:
+                    weather_text += "\n\n🌊 Данные о волнах недоступны для этого местоположения"
+            else:
+                weather_text += "\n\n🌊 Данные о волнах недоступны для этого местоположения"
             
             await update.message.reply_text(weather_text)
             
