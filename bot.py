@@ -2,6 +2,7 @@ import os
 import requests
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from datetime import datetime
 
 # Токены из переменных окружения Render
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
@@ -30,6 +31,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Париж"
     )
 
+def format_time(time_str):
+    """Форматирование времени из формата API в читаемый вид"""
+    try:
+        # Преобразуем время из формата "2024-01-15 07:45" в "07:45"
+        dt = datetime.strptime(time_str, "%Y-%m-%d %H:%M")
+        return dt.strftime("%H:%M")
+    except:
+        return time_str
+
 async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка сообщений с названием города"""
     city = update.message.text.strip()
@@ -39,21 +49,36 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     
     try:
-        # WeatherAPI.com - более надежный сервис
-        url = "http://api.weatherapi.com/v1/current.json"
-        params = {
+        # Получаем текущую погоду
+        current_url = "http://api.weatherapi.com/v1/current.json"
+        current_params = {
             'key': WEATHER_API_KEY,
             'q': city,
             'lang': 'ru'
         }
         
-        response = requests.get(url, params=params, timeout=10)
-        data = response.json()
+        # Получаем астрономические данные (восход, закат)
+        astronomy_url = "http://api.weatherapi.com/v1/astronomy.json"
+        astronomy_params = {
+            'key': WEATHER_API_KEY,
+            'q': city,
+            'dt': 'today'  # данные на сегодня
+        }
         
-        if 'error' not in data:
-            # Парсим данные о погоде
-            location = data['location']
-            current = data['current']
+        # Делаем запросы параллельно
+        current_response = requests.get(current_url, params=current_params, timeout=10)
+        astronomy_response = requests.get(astronomy_url, params=astronomy_params, timeout=10)
+        
+        current_data = current_response.json()
+        astronomy_data = astronomy_response.json()
+        
+        if 'error' not in current_data and 'error' not in astronomy_data:
+            # Парсим данные о текущей погоде
+            location = current_data['location']
+            current = current_data['current']
+            
+            # Парсим астрономические данные
+            astronomy = astronomy_data['astronomy']['astro']
             
             weather_text = (
                 f"🌍 {location['name']}, {location['country']}\n"
@@ -63,15 +88,21 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 f"💧 Влажность: {current['humidity']}%\n"
                 f"🌬️ Ветер: {current['wind_kph']} км/ч\n"
                 f"📊 Давление: {current['pressure_mb']} гПа\n"
-                f"🌫️ Видимость: {current['vis_km']} км"
+                f"🌫️ Видимость: {current['vis_km']} км\n"
+                f"🌅 Восход: {format_time(astronomy['sunrise'])}\n"
+                f"🌇 Закат: {format_time(astronomy['sunset'])}"
             )
             
             await update.message.reply_text(weather_text)
             
         else:
-            error_message = data['error']['message']
+            error_message = current_data.get('error', astronomy_data.get('error', {})).get('message', 'Неизвестная ошибка')
             await update.message.reply_text(f"❌ {error_message}")
             
+    except requests.exceptions.Timeout:
+        await update.message.reply_text("❌ Превышено время ожидания ответа от сервера погоды")
+    except requests.exceptions.RequestException as e:
+        await update.message.reply_text("❌ Ошибка соединения с сервером погоды")
     except Exception as e:
         await update.message.reply_text("❌ Ошибка при получении погоды. Попробуйте другой город или позже.")
 
@@ -92,7 +123,7 @@ def main():
     
     # Обработчик текстовых сообщений (названия городов)
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_city_message))
-    application.add_handler(CommandHandler("testozon", test_ozon))
+    
     print("🌤️ Бот погоды запущен!")
     application.run_polling()
 
