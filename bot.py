@@ -56,31 +56,45 @@ def get_wave_height_description(wave_height_m):
 def should_show_marine_data(marine_data, city_name):
     """Определяет, нужно ли показывать данные о волнах"""
     try:
-        if 'error' in marine_data or 'forecast' not in marine_data:
+        # Для отладки выведем что приходит
+        print(f"Marine data for {city_name}: {marine_data}")
+        
+        if 'error' in marine_data:
+            print(f"Marine API error: {marine_data['error']}")
+            return False
+            
+        if 'forecast' not in marine_data:
+            print("No forecast in marine data")
             return False
             
         marine_forecast = marine_data['forecast']['forecastday'][0]
         if 'hour' not in marine_forecast or len(marine_forecast['hour']) == 0:
+            print("No hour data in marine forecast")
             return False
         
         current_hour = marine_forecast['hour'][0]
         wave_height = current_hour.get('sig_ht_mt', 0)
         wave_period = current_hour.get('swell_period_secs', 0)
+        wave_direction = current_hour.get('swell_direction_deg', 0)
         
-        # Основные критерии для отображения волн:
-        # 1. Высота волн должна быть > 0.1м (фильтруем нулевые/минимальные значения)
-        # 2. Период волн должен быть > 0.5 сек (фильтруем нереальные значения)
+        print(f"Wave data - height: {wave_height}m, period: {wave_period}s, direction: {wave_direction}°")
         
-        # Для известных материковых городов - никогда не показываем волны
-        inland_cities = ['москва', 'moscow', 'киев', 'kyiv', 'минск', 'minsk']
+        # ОЧЕНЬ ПРОСТАЯ ПРОВЕРКА: только для Москвы не показываем
+        inland_cities = ['москва', 'moscow']
         
         if city_name.lower() in inland_cities:
+            print(f"{city_name} is inland city - skipping marine data")
             return False
             
-        # Для всех остальных городов показываем волны если данные выглядят реалистично
-        return wave_height > 0.1 and wave_period > 0.5
+        # Для всех остальных городов показываем волны если есть какие-то данные
+        # (даже если они маленькие - возможно это реальные данные для спокойного моря)
+        has_wave_data = wave_height > 0 or wave_period > 0
         
-    except Exception:
+        print(f"Should show marine data for {city_name}: {has_wave_data}")
+        return has_wave_data
+        
+    except Exception as e:
+        print(f"Error in should_show_marine_data: {e}")
         return False
 
 async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -155,6 +169,7 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 'days': 1
             }
             
+            print(f"Requesting marine data for: {city}")
             marine_response = requests.get(marine_url, params=marine_params, timeout=5)
             marine_data = marine_response.json()
             
@@ -174,13 +189,13 @@ async def handle_city_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"📋 {get_wave_height_description(wave_height_m)}"
                 )
                 weather_text += wave_info
+            else:
+                print(f"Not showing marine data for {city}")
             
         except requests.exceptions.Timeout:
-            # Игнорируем таймаут для морских данных
-            pass
+            print(f"Marine API timeout for {city}")
         except Exception as e:
-            # Игнорируем ошибки получения морских данных
-            pass
+            print(f"Marine API error for {city}: {e}")
         
         await update.message.reply_text(weather_text)
             
